@@ -1,0 +1,86 @@
+---
+title: "R code for lag-one autocorrelation analysis for Chimpanzee buttress drumming shows rhythmicity and subspecies variation"
+author: Jelle van der Werff
+date: 31/08/2024
+output:
+    html_document:
+        code_folding: hide
+        toc: true
+---
+
+```{r preliminaries}
+# for easy loading of packages
+if (!require("pacman")) install.packages("pacman")
+
+# load packages
+p_load("plyr", "ggplot2", "here")
+
+here <- here::here
+
+# for relative file paths (e.g. here('Input', 'file.csv'))
+here::i_am(file.path("Drum_autocor_rcode.Rmd"))
+
+# load data
+itis <- read.csv(here("dataframes", "drumming_long.csv"))
+
+# load custom ggplot theme
+source(here("Drumming_ggplot_theme.R"))
+
+```
+
+```{r get-autocorrelations}
+
+# get lag-one autocorrelations by subspecies and bout
+acf <- ddply(itis, .(Subspecies, Drumming_bout), summarize,
+ lag_one = acf(IBI, lag.max = 1, plot = FALSE)$acf[2])
+
+# Plot average lag-one autocorrelation by subspecies
+acf$Subspecies=as.factor(acf$Subspecies)
+levels(acf$Subspecies)[levels(acf$Subspecies)=="WAC"] <- "Western" #relevel
+levels(acf$Subspecies)[levels(acf$Subspecies)=="EAC"] <- "Eastern" #relevel
+
+ggplot(acf, aes(y = Subspecies, x = lag_one, colour = Subspecies)) +
+  stat_summary(geom = "pointrange", show.legend = FALSE) +
+  theme_drumming() +
+  labs(y = "", x = expression("")) +
+  coord_cartesian(xlim = c(-0.5, 0)) +
+  scale_x_continuous(breaks = c(-0.5, -0.25, 0)) +
+  theme(
+    panel.background = element_rect(fill = "transparent", color = NA),  # Make panel background transparent
+    plot.background = element_rect(fill = "transparent", color = NA),   # Make plot background transparent
+    panel.grid.major = element_blank(),  # Remove major grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    panel.grid.major.x = element_line(color = "gray80", size = 0.5),  # Add vertical major grid lines
+    panel.grid.major.y = element_blank(),  # Remove major horizontal grid lines
+    legend.background = element_rect(fill = "transparent", color = NA),  # Make legend background transparent
+    legend.box.background = element_rect(fill = "transparent", color = NA)  # Make legend box background transparent
+  )
+ggsave(here("plots", "main plots", "Sub_autocor.png"), height = 4, width = 4)
+ggsave(here("plots", "main plots", "Sub_autocor.svg"), height = 4, width = 4)
+
+```
+
+```{r do-t-test}
+
+# Check equality of variances
+var.test(acf$lag_one[acf$Subspecies == "Eastern"], acf$lag_one[acf$Subspecies == "Western"])
+
+# Do t-test
+Sub_autocor_res=t.test(acf$lag_one[acf$Subspecies == "Eastern"], acf$lag_one[acf$Subspecies == "Western"])
+
+setwd("~/Desktop/Drumming/Acoustic data analyses 2023/Analyses/results/Subspecies rhythms/Autocorrelations")
+
+# Save list of results
+Sub_autocor_res_list <- list(
+  test_statistic = Sub_autocor_res$statistic,
+  p_value = Sub_autocor_res$p.value,
+  df = Sub_autocor_res$parameter,
+  method = Sub_autocor_res$method
+)
+
+# List to df
+Sub_autocor_res_df <- as.data.frame(Sub_autocor_res_list)
+
+# Save csv
+write.table(Sub_autocor_res_df, file = "Sub_autocor_res.csv", row.names = TRUE, col.names = TRUE, sep = ",", dec = ".")
+```

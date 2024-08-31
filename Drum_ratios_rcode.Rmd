@@ -1,0 +1,351 @@
+---
+title: "R code for rhythm ratios analyses and plots for Chimpanzee buttress drumming shows rhythmicity and subspecies variation"
+author: Jelle van der Werff and Vesta Eleuteri
+date: 31/08/2024
+output:
+    html_notebook:
+        code_folding: hide
+        toc: true
+        toc_float: true
+---
+
+# Preliminaries
+
+```{r load-packages}
+rm(list=ls())
+
+# for easy loading of packages
+if (!require("pacman")) install.packages("pacman")
+
+# load packages
+p_load("here", "ggplot2", "dplyr", "nlme", "kldtools", "pracma")
+library(conflicted) 
+
+# for relative file paths (e.g. here('Input', 'file.csv'))
+here::i_am(file.path("Drum_ratios_rcode.Rmd"))
+conflicts_prefer(here::here) 
+
+# load data
+ratios <- read.csv(here("dataframes", "drumming_ratios.csv"))
+
+# load custom ggplot theme
+source(here("Drumming_ggplot_theme.R"))
+
+# create simulated data
+ratios.simulated <- runif(n = 100001, min = 100, max = 1000)
+
+# calculate ratios
+ratios.simulated <- ratios.simulated / (ratios.simulated + lead(ratios.simulated))
+ratios.simulated <- ratios.simulated[!is.na(ratios.simulated)]
+ratios.simulated <- as.data.frame(list(Ratio = ratios.simulated))
+```
+
+# Coding ratios categories
+
+```{r define-on-off}
+labels <- as.character(seq(0, 5))
+breaks <- c(0,
+1 / 2.5, 1 / 2.25, 1 / 2, (1 - 1 / 2.25), (1 - 1 / 2.5),
+  1
+)
+ratios$Bin <- cut(ratios$Ratio, breaks = breaks, labels = labels)
+ratios.simulated$Bin <- cut(ratios.simulated$Ratio, breaks = breaks, labels = labels)
+
+# "0" Other
+# "1"  OFF 1:1
+# "2"  "3"  ON 1:1
+# "4"  OFF 1:1
+# "5" Other
+```
+
+# Counting on- vs. off-isochronous
+
+```{r count-and-normalize}
+# Code off- and on-isochronous
+ratios$On_off_isoc <- NA
+ratios$On_off_isoc[ratios$Bin %in% c(1, 4)] <- "Off"
+ratios$On_off_isoc[ratios$Bin %in% c(2, 3)] <- "On"
+ratios$On_off_isoc[ratios$Bin %in% c(0, 5)] <- "Other"
+# Calculate normalized counts
+ratios.isoc.counts <- dplyr::summarize(dplyr::group_by(ratios, Subspecies, Population, Community, Com_indiv_code),
+  On_isochronous = sum(On_off_isoc == "On"), Off_isochronous = sum(On_off_isoc == "Off"), Other = sum(On_off_isoc == "Other"), Total_obs = n()
+)
+# Normalize
+ratios.isoc.counts$On_isochronous_norm <- ratios.isoc.counts$On_isochronous / (ratios.isoc.counts$Total_obs * (0.0444 * 2))
+ratios.isoc.counts$Off_isochronous_norm <- ratios.isoc.counts$Off_isochronous / (ratios.isoc.counts$Total_obs * (0.0555 * 2))
+```
+
+#Find Local Maxima 
+
+```{r local maxima}
+# Number of points at which density is estimated
+n_steps <- 1000
+
+# Get the ratios separate for both subspecies
+ratios.eac <- ratios$Ratio[ratios$Subspecies == "EAC"]
+ratios.wac <- ratios$Ratio[ratios$Subspecies == "WAC"]
+
+# Get the density of the ratios
+dens.eac <- density(ratios.eac, from = 0, to = 1, n = n_steps)
+dens.wac <- density(ratios.wac, from = 0, to = 1, n = n_steps)
+
+# Find local maxima
+maxima.eac <- findpeaks(dens.eac$y, nups = 1, ndowns = 1)
+maxima.wac <- findpeaks(dens.wac$y, nups = 1, ndowns = 1)
+
+# Get the x values
+maxima.x.eac <- maxima.eac[, 2] / n_steps
+maxima.x.wac <- maxima.wac[, 2] / n_steps
+```
+# Plotting
+
+## EAC vs. WAC
+```{r plot-ratios}
+# select only on-isochronous and off-isochronous
+# ratios <- ratios[ratios$Bin %in% c(1, 2, 3, 4), ]
+# ratios.simulated <- ratios.simulated[ratios.simulated$Bin %in% c(1, 2, 3, 4), ]
+
+# tiles
+tiles <- as.data.frame(list(
+  xmin = c(0, breaks),
+  xmax = c(breaks, 1),
+  ymin = rep(-Inf, length(breaks) + 1),
+  ymax = rep(Inf, length(breaks) + 1),
+  fill = as.factor(c("Other", "Off 1:1", "Off 1:1", "On 1:1", "On 1:1", "Off 1:1", "Off 1:1", "Other"))
+))
+
+labels <- as.data.frame(list(
+  x = c(0.42, 0.5, 0.58),
+  y = c(0.1, 0.1, 0.1),
+  label = c("Off 1:1", "On 1:1", "Off 1:1")
+))
+
+
+str(ratios)
+
+# rename Subspecies for plot
+ratios$Subspecies=as.factor(ratios$Subspecies)
+ratios$Subspecies2=as.factor(ratios$Subspecies)
+levels(ratios$Subspecies2)[levels(ratios$Subspecies2)=="WAC"] <- "Western" #relevel
+levels(ratios$Subspecies2)[levels(ratios$Subspecies2)=="EAC"] <- "Eastern" #relevel
+
+str(ratios)
+
+# plot subspecies
+sub_ratios_plot=ggplot(ratios, aes(x = Ratio, fill = factor(Subspecies2, levels=c("Eastern", "Western")))) +
+  geom_density(data = subset(ratios, Subspecies2 == "Western"), 
+  aes(x = Ratio, fill = "Western"), 
+  linewidth = 0, alpha = 0.7, position = "identity") +
+   geom_density(data = subset(ratios, Subspecies2 == "Eastern"), 
+  aes(x = Ratio, fill = "Eastern"), 
+  linewidth = 0, alpha = 0.7, position = "identity") +
+  geom_density(data = ratios.simulated, aes(x = Ratio), linewidth = 2, colour = "yellow", inherit.aes = FALSE, show.legend = FALSE) +
+  theme_drumming() +
+    scico::scale_colour_scico_d(palette = "roma", begin=0.1, end=0.9, alpha=0.7) + # fourth item in list
+    scico::scale_fill_scico_d(palette = "roma", begin=0.1, end=0.9, alpha=0.7) +
+  geom_vline(xintercept = breaks, linetype = "dashed", linewidth = 0.8, colour = "dark grey") +
+  geom_rect(data = tiles, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax), fill="grey", inherit.aes = FALSE, alpha = 0.2,  show.legend = FALSE) + 
+  labs(y = "Density", x="r", fill="", title = "A - Subspecies rhythmic patterns") + 
+  geom_label(data = labels, aes(x = x, y = y, label = label), size = 10, family = "Helvetica", inherit.aes = FALSE) + theme( 
+    plot.title = element_text(size = 38),  
+    axis.title.x = element_text(size = 32), 
+    axis.title.y = element_text(size = 32),  
+    axis.text.x = element_text(size = 28),  
+    axis.text.y = element_text(size = 28), 
+    legend.title = element_text(size = 32),
+    legend.text = element_text(size = 32)  
+  ) + theme(plot.margin = margin(1, 0, 1, 1, "cm"),
+  legend.position = c(0.05, 0.99), # Position legend in the top left corner
+  legend.justification = c(0, 1),  # Align the legend to the top left corner
+  legend.background = element_blank(),  # Remove legend background
+  legend.box.background = element_blank() # Remove legend box background
+  ) 
+
+ggsave(here("plots", "main plots", "Sub_integer_ratios_vs_random2.png"), width = 26, height = 10)
+ggsave(here("plots", "main plots", "Sub_integer_ratios_vs_random2.svg"), width = 26, height = 10)
+```
+
+# Kolmogorov-Smirnov Tests for rhythmic drumming
+
+## Bonferroni correction for multiple testing
+
+```{r bonferroni-cor}
+alpha <- 0.05  
+num_comparisons <- 3
+alpha_corrected <- alpha / num_comparisons #0.01666667
+```
+
+## Is chimpanzee drumming random?
+
+```{r drum-ks-test}
+
+set.seed(1)
+ks.drum <- ksboot(ratios$Ratio, ratios.simulated$Ratio, alternative = "two.sided")
+ks.drum 
+
+# Save list of results
+Chimps_KS_res <- list(
+  p_value = ks.drum$ksboot.pvalue,
+  bootstraps = ks.drum$nboots)
+
+# Convert the list to a data frame
+Chimps_KS_res <- as.data.frame(Chimps_KS_res)
+
+# Save the data frame to a CSV file
+write.table(Chimps_KS_res, file = "All_KS_res.csv", row.names = TRUE, col.names = TRUE, sep = ",", dec = ".")
+```
+KS-test is significant, i.e. the drumming isn´t random. 
+
+## Is the drumming random within and across subspecies?
+
+### KS: EAC
+
+```{r eac-ks-test}
+set.seed(2)
+ks.eac <- ksboot(ratios$Ratio[ratios$Subspecies == "EAC"], ratios.simulated$Ratio, alternative = "two.sided")
+ks.eac 
+
+# Save list of results
+EAC_KS_res <- list(
+  p_value = ks.eac$ksboot.pvalue,
+  bootstraps = ks.eac$nboots)
+
+# Convert the list to a data frame
+EAC_KS_res <- as.data.frame(EAC_KS_res)
+
+# Save the data frame to a CSV file
+write.table(EAC_KS_res, file = "EAC_KS_res.csv", row.names = TRUE, col.names = TRUE, sep = ",", dec = ".")
+```
+
+KS-test is significant, i.e. the drumming isn´t random. 
+
+### KS: WAC
+
+```{r wac-ks-test}
+set.seed(3)
+ks.wac <- ksboot(ratios$Ratio[ratios$Subspecies == "WAC"], ratios.simulated$Ratio, alternative = "two.sided")
+ks.wac
+
+# Save list of results
+WAC_KS_res <- list(
+  p_value = ks.wac$ksboot.pvalue,
+  bootstraps = ks.wac$nboots)
+
+# Convert the list to a data frame
+WAC_KS_res <- as.data.frame(WAC_KS_res)
+
+# Save the data frame to a CSV file
+write.table(WAC_KS_res, file = "WAC_KS_res.csv", row.names = TRUE, col.names = TRUE, sep = ",", dec = ".")
+```
+
+KS-test is significant, i.e. the drumming isn´t random.
+
+
+### KS: EAC vs. WAC
+
+But are the two distributions different? 
+
+```{r eac-wac-ks-test}
+ks.eac.vs.wac <- ksboot(ratios$Ratio[ratios$Subspecies == "EAC"], ratios$Ratio[ratios$Subspecies == "WAC"], alternative = "two.sided")
+ks.eac.vs.wac
+
+# Save list of results
+EACvsWAC_KS_res <- list(
+  p_value = ks.eac.vs.wac$ksboot.pvalue,
+  bootstraps = ks.eac.vs.wac$nboots)
+
+# Convert the list to a data frame
+EACvsWAC_KS_res <- as.data.frame(EACvsWAC_KS_res)
+
+# Save the data frame to a CSV file
+write.table(EACvsWAC_KS_res, file = "EACvsWAC_KS_res.csv", row.names = TRUE, col.names = TRUE, sep = ",", dec = ".")
+```
+Yes
+
+# Wilcoxon Tests for isochronous drumming
+
+## Bonferroni correction for multiple testing
+
+```{r bonferroni-cor}
+alpha <- 0.05  
+num_comparisons <- 3
+alpha_corrected <- alpha / num_comparisons #0.01666667
+```
+
+### More on-isochronous vs. off-isochronous drumming across and within subspecies?
+
+```{r isoc-counts-wilcoxon}
+# Two-sample Wilcoxon test
+
+# All chimpanzees
+wx.drum=wilcox.test(ratios.isoc.counts$On_isochronous_norm, ratios.isoc.counts$Off_isochronous_norm, paired = TRUE)
+
+  ##Save list of results
+Chimps_WX_res <- list(
+  statistic = wx.drum$statistic, 
+  p_value = wx.drum$p.value)
+                      
+  ##Convert the list to a data frame
+Chimps_WX_res <- as.data.frame(Chimps_WX_res)
+
+  ##Save the data frame to a CSV file
+write.table(Chimps_WX_res, file = "All_WX_res.csv", row.names = TRUE, col.names = TRUE, sep = ",", dec = ".")
+median(ratios.isoc.counts$On_isochronous_norm)
+median(ratios.isoc.counts$Off_isochronous_norm)
+
+# East African chimpanzees
+wx.eac=wilcox.test(ratios.isoc.counts$On_isochronous_norm[ratios.isoc.counts$Subspecies == "EAC"], ratios.isoc.counts$Off_isochronous_norm[ratios.isoc.counts$Subspecies == "EAC"], paired = TRUE)
+
+  ##Save list of results
+EAC_WX_res <- list(
+  statistic = wx.eac$statistic, 
+  p_value = wx.eac$p.value)
+                      
+  ##Convert the list to a data frame
+EAC_WX_res <- as.data.frame(EAC_WX_res)
+
+  ##Save the data frame to a CSV file
+write.table(EAC_WX_res, file = "EAC_WX_res.csv", row.names = TRUE, col.names = TRUE, sep = ",", dec = ".")
+
+median(ratios.isoc.counts$On_isochronous_norm[ratios.isoc.counts$Subspecies == "EAC"])
+median(ratios.isoc.counts$Off_isochronous_norm[ratios.isoc.counts$Subspecies == "EAC"])
+
+# West African chimpanzees
+wx.wac=wilcox.test(ratios.isoc.counts$On_isochronous_norm[ratios.isoc.counts$Subspecies == "WAC"], ratios.isoc.counts$Off_isochronous_norm[ratios.isoc.counts$Subspecies == "WAC"], paired = TRUE)
+
+  ##Save list of results
+WAC_WX_res <- list(
+  statistic = wx.wac$statistic, 
+  p_value = wx.wac$p.value)
+                      
+  ##Convert the list to a data frame
+WAC_WX_res <- as.data.frame(WAC_WX_res)
+
+  ##Save the data frame to a CSV file
+write.table(WAC_WX_res, file = "WAC_WX_res.csv", row.names = TRUE, col.names = TRUE, sep = ",", dec = ".")
+
+median(ratios.isoc.counts$On_isochronous_norm[ratios.isoc.counts$Subspecies == "WAC"])
+median(ratios.isoc.counts$Off_isochronous_norm[ratios.isoc.counts$Subspecies == "WAC"])
+```
+
+### More isochrony in WAC than EAC?
+
+```{r isoc-counts-wilcoxon}
+# Two-sample Wilcoxon test
+wx.eac.vs.wac=wilcox.test(ratios.isoc.counts$On_isochronous_norm[ratios.isoc.counts$Subspecies == "WAC"], ratios.isoc.counts$On_isochronous_norm[ratios.isoc.counts$Subspecies == "EAC"])
+
+  ##Save list of results
+EACvsWAC_WX_res <- list(
+  statistic = wx.eac.vs.wac$statistic, 
+  p_value = wx.eac.vs.wac$p.value)
+                      
+  ##Convert the list to a data frame
+EACvsWAC_WX_res <- as.data.frame(EACvsWAC_WX_res)
+
+  ##Save the data frame to a CSV file
+write.table(EACvsWAC_WX_res, file = "EACvsWAC_WX_res.csv", row.names = TRUE, col.names = TRUE, sep = ",", dec = ".")
+
+median(ratios.isoc.counts$On_isochronous_norm[ratios.isoc.counts$Subspecies == "WAC"])
+median(ratios.isoc.counts$On_isochronous_norm[ratios.isoc.counts$Subspecies == "EAC"])
+```
+Yes
