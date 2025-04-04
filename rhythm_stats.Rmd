@@ -1,0 +1,934 @@
+---
+title: "Drumming rhythm and tempo statistics"
+author: Vesta Eleuteri & Jelle van der Werff
+date: "`r Sys.Date()`"
+output:
+  rmdformats::material:
+    self_contained: true
+    thumbnails: true
+    lightbox: true
+    gallery: false
+    highlight: tango
+    cards: true
+    code_folding: hide
+bibliography: references.bib
+csl: apa.csl
+---
+
+# Introduction
+
+This document accompanies the manuscript "Chimpanzee drumming shows rhythmicity and subspecies variation" @vestaeleuteriChimpanzeeDrummingShows2025.
+
+
+# Preliminaries
+
+## Load packages and data
+
+```{r load-packages, echo = FALSE, warning = FALSE}
+# for easy loading of packages
+if (!require("pacman")) install.packages("pacman")
+
+# load packages
+p_load("here", "ggplot2", "dplyr", "nlme", "dplyr", "plyr", "knitr", "rmdformats", "kableExtra", "Matching", "kldtools", "effectsize", "lme4", "lmerTest", "psych")
+
+here <- here::here
+
+# for relative file paths (e.g. here('Input', 'file.csv'))
+here::i_am(file.path("rhythm_stats.Rmd"))
+
+# load data
+ratios <- read.csv(here("dataframes", "drumming_ratios.csv"))
+ibis <- read.csv(here("dataframes", "drumming_long.csv"))
+
+# load custom ggplot theme
+source(here("theme_drumming.R"))
+
+# create simulated data based on uniform distribution
+set.seed(1)
+ratios.simulated <- runif(n = 1000001, min = min(ibis$IBI_ms), max = max(ibis$IBI_ms)) # IOIs
+
+# calculate ratios
+ratios.simulated <- ratios.simulated / (ratios.simulated + lead(ratios.simulated))
+ratios.simulated <- ratios.simulated[!is.na(ratios.simulated)]
+ratios.simulated <- as.data.frame(list(Ratio = ratios.simulated))
+
+# set knitr options
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, out.width = "100%", fig.height = 10, fig.width = 10, comment = NA)
+```
+
+## Defining bins and coding ratios categories
+
+```{r bins}
+bins <- list(
+  "1" = c(0, 1 / 4.25), # 1 / 4.5
+  "2" = c(1 / 4.25, 1 / 3.75), # 1 / 4 > 1:3
+  "3" = c(1 / 3.75, 1 / 3.25), # 1 / 3.5
+  "4" = c(1 / 3.25, 1 / 2.75), # 1 / 3 > 1:2
+  "5" = c(1 / 2.75, 1 / 2.25), # 1 / 2.5
+  "6" = c(1 / 2.25, 1 - 1 / 2.25), # 1 / 2 > 1:1
+  "7" = c(1 - 1 / 2.25, 1 - 1 / 2.75), # 1 - 1 / 2.5
+  "8" = c(1 - 1 / 2.75, 1 - 1 / 3.25), # 1 - 1 / 3 > 2:1
+  "9" = c(1 - 1 / 3.25, 1 - 1 / 3.75), # 1 - 1 / 3.5
+  "10" = c(1 - 1 / 3.75, 1 - 1 / 4.25), # 1 - 1 / 4 > 3:1
+  "11" = c(1 - 1 / 4.25, 1) # 1 - 1 / 4.5
+)
+
+breaks <- c(0, 1 / 4.25, 1 / 3.75, 1 / 3.25, 1 / 2.75, 1 / 2.25, 1 - 1 / 2.25, 1 - 1 / 2.75, 1 - 1 / 3.25, 1 - 1 / 3.75, 1 - 1 / 4.25, 1)
+
+labels <- names(bins)
+
+ratios$Bin <- cut(ratios$Ratio, breaks = breaks, labels = labels)
+ratios.simulated$Bin <- cut(ratios.simulated$Ratio, breaks = breaks, labels = labels)
+```
+
+## Reordering/renaming variables etc.
+
+```{r reorder}
+# Change levels order
+ibis$Subspecies <- factor(ibis$Subspecies, levels = c("Western", "Eastern"))
+ibis$Population <- factor(ibis$Population, levels = c("Fongoli", "Nimba", "Taï", "Gombe", "Kibale", "Budongo"))
+ibis$Community <- factor(ibis$Community, levels = c(
+  "Fongoli", "Tongbongbon", "Gahtoy", "East", "Middle", "North", "South",
+  "Kasekela", "Kanyawara", "Sonso", "Waibira"
+))
+
+ratios$Subspecies <- factor(ratios$Subspecies, levels = c("Western", "Eastern"))
+ratios$Population <- factor(ratios$Population, levels = c("Fongoli", "Nimba", "Taï", "Gombe", "Kibale", "Budongo"))
+ratios$Community <- factor(ratios$Community, levels = c(
+  "Fongoli", "Tongbongbon", "Gahtoy", "East", "Middle", "North", "South",
+  "Kasekela", "Kanyawara", "Sonso", "Waibira"
+))
+```
+
+# Descriptives (inter-hit intervals and ratios)
+
+```{r descriptives}
+subspecies.table <- ddply(ibis, .(Subspecies), summarize,
+  mean = mean(IBI_ms),
+  median = median(IBI_ms),
+  sd = sd(IBI_ms),
+  min = min(IBI_ms),
+  max = max(IBI_ms)
+)
+kable(subspecies.table, format = "html", caption = "Descriptives of inter-hit intervals (ms) by subspecies") %>%
+  kable_styling("striped", full_width = FALSE) %>%
+  column_spec(1, bold = TRUE) %>%
+  column_spec(2:6, width = "100px")
+
+overall.table <- as.data.frame(ddply(ibis, .(), summarize,
+  mean = mean(IBI_ms),
+  median = median(IBI_ms),
+  sd = sd(IBI_ms),
+  min = min(IBI_ms),
+  max = max(IBI_ms)
+))
+overall.table <- overall.table[, 2:6]
+
+kable(overall.table, format = "html", caption = "Descriptives of inter-hit intervals (ms) overall") %>%
+  kable_styling("striped", full_width = FALSE)
+```
+
+
+# Main text: Analyses for non-random timing, isochrony, and shorter-longer adjacent inter-hit intervals in drumming
+
+## Introduction
+
+Our main analysis relies on the method devised by @roeskeCategoricalRhythmsAre2020, in which the relationships between adjacent inter-onset/inter-hit intervals
+(IOIs/IHIs) are described by the formula: $r_k = \frac{IOI_k}{IOI_k + IOI_{k+1}}$. This formula results in ratios $r_k$ that range from 0 to 1, where e.g. 0.5
+indicates isochrony.
+
+Recently, @jadoulHiddenAssumptionsInteger2025 have highlighted a number of issues with the usual method of doing statistics with these ratios, and have improved the
+method as hitherto used. Our analysis takes into account these new insights.
+
+Classically, the null hypothesis is that observed IOIs are distributed according to a random uniform distribution. However, the statistical tests that are
+generally used do not conform to this null hypothesis [@jadoulHiddenAssumptionsInteger2025]. According to @jadoulHiddenAssumptionsInteger2025, the assumption of a uniformly random
+distribution of IOIs as the null-hypothesis means that the ratios are distributed according to the distribution plotted below. The exact shape of this
+distribution is dependent on the left and right bounds of the random uniform distribution used for sampling the IOIs. However, the shape will remain similar
+to the one plotted below.
+
+As left (a) and right (b) bounds of the uniform distribution of IOIs, in our analysis we use the minimum observed IOI duration and the maximum observed IOI
+duration, respectively.
+
+The dotted lines in the plot are the histogram bins, following @roeskeCategoricalRhythmsAre2020, which represent the integer ratios 1:3 (bin centered around 0.25),
+1:2 (bin centered around 0.33), 1:1 (isochrony; bin centered around 0.5), 2:1 (bin centered around 0.66), and 3:1 (bin centered around 0.75).
+The bins in between these integer ratios are the off-integer bins.
+
+```{r uniform-random-distribution}
+ggplot(ratios.simulated, aes(x = Ratio)) +
+  geom_density(linewidth = 2) +
+  theme_drumming() +
+  geom_vline(xintercept = breaks, linetype = "dashed", linewidth = 0.5, colour = "grey") +
+  labs(x = "Ratio", y = "Probability density", title = "Random ratios distribution", subtitle = "Assumes uniformly random IOIs") +
+  scale_x_continuous(
+    breaks = c(0, 0.25, 0.3333, 0.5, 0.6666, 0.75, 1), limits = c(0, 1),
+    labels = c("0.0", "0.25\n1:3", "0.33\n1:2", "0.5\n1:1", "0.66\n3:2", "0.75\n3:1", "1.0")
+  )
+```
+
+We define the bins following Roeske et al. (2020):
+
+```{r surface-areas}
+ratios.bins <- data.frame(bin = as.character(1:11))
+
+ratios.bins$bin_left <- sapply(bins, function(x) x[1])
+ratios.bins$bin_right <- sapply(bins, function(x) x[2])
+ratios.bins$bin_name <- c("", "1/4", "1/3.5", "1/3", "1/2.5", "1/2", "1 - 1/2.5", "1 - 1/3", "1 - 1/3.5", "1 - 1/4", "")
+ratios.bins$bin_alternative_name <- c("", "1:3", "", "1:2", "", "1:1", "", "2:1", "", "3:1", "")
+
+kable(ratios.bins,
+  format = "html", caption = "Bins definition", col.names =
+    c("Bin", "Bin (left bound)", "Bin (right bound)", "Bin center", "Integer ratio")
+) %>%
+  kable_styling("striped", full_width = FALSE)
+```
+
+Then, we count the number of observations in each bin.
+
+```{r count-and-normalize-drumming}
+# Code off- and on-isochronous
+ratios$On_off_isoc <- NA
+ratios$On_off_isoc <- factor(ratios$On_off_isoc, levels = c("Off", "On", "Other"))
+ratios$On_off_isoc <- "Other"
+ratios$On_off_isoc[ratios$Bin %in% c(5, 7)] <- "Off"
+ratios$On_off_isoc[ratios$Bin == 6] <- "On"
+
+# Count
+ratios.isoc.counts <- dplyr::summarize(dplyr::group_by(ratios, Subspecies, Population, Community, Com_indiv_code),
+  On_isochronous = sum(On_off_isoc == "On"), Off_isochronous = sum(On_off_isoc == "Off"), Other = sum(On_off_isoc == "Other"), Total_obs = n()
+)
+
+kable(head(ratios.isoc.counts, 10),
+  format = "html", align = "l",
+  caption = "Counts of on- and off-isochronous drumming ratios (first 10 rows)",
+  col.names = c(
+    "Subspecies", "Population", "Community", "Community (Individual)", "On-isochronous count", "Off-isochronous count", "Other ratios count",
+    "Total n ratios observed"
+  )
+) %>%
+  kable_styling("striped", full_width = FALSE)
+```
+
+## Plot of ratios distributions by subspecies
+
+```{r plot-ratios-distribution}
+labels <- as.data.frame(list(
+  x = c(0.25, 0.335, 0.5, 0.665, 0.75),
+  y = c(0.1, 0.1, 0.1, 0.1, 0.1),
+  label = c("1:3", "1:2", "1:1", "2:1", "3:1"),
+  size = c(4, 6, 10, 6, 4)
+))
+
+ggplot(ratios, aes(x = Ratio, fill = Subspecies)) +
+  geom_density(linewidth = 0, alpha = 0.7) +
+  geom_density(data = ratios.simulated, aes(x = Ratio), linewidth = 2, colour = "yellow", inherit.aes = FALSE, show.legend = FALSE) +
+  theme_drumming() +
+  geom_vline(xintercept = breaks, linetype = "dashed", linewidth = 0.5, colour = "darkgrey") +
+  labs(y = "Density", x = "r", fill = "", title = "B - Subspecies rhythmic patterns") +
+  geom_label(data = labels, aes(x = x, y = y, label = label), size = 10, family = "Helvetica", inherit.aes = FALSE) +
+  theme(
+    plot.title = element_text(size = 38),
+    axis.title.x = element_text(size = 32),
+    axis.title.y = element_text(size = 32),
+    axis.text.x = element_text(size = 28),
+    axis.text.y = element_text(size = 28),
+    legend.title = element_text(size = 32),
+    legend.text = element_text(size = 32)
+  ) +
+  theme(plot.margin = margin(1, 0, 1, 1, "cm")) +
+  guides(fill = "none")
+
+ggsave(here("plots", "integer_ratios_vs_random.pdf"), width = 15, height = 10)
+ggsave(here("plots", "integer_ratios_vs_random.png"), width = 15, height = 10)
+ggsave(here("plots", "integer_ratios_vs_random.svg"), width = 15, height = 10)
+```
+
+
+## Statistics
+
+Here we test:
+
+1. Whether the drumming ratios are randomly distributed (i.e. whether the distribution of observed ratios is different from a distribution of ratios derived from uniformly random inter-hit intervals).
+2. Whether the distributions of eastern and western differ from each other.
+3. Whether there are more on-isochronous ratios than expected by chance.
+4. Whether there are more on-isochronous ratios in eastern vs. western chimpanzees.
+5. Whether there is more alternation of shorter-longer inter-hit intervals in eastern vs. western chimpanzees.
+
+
+### Do chimpanzees show non-random timing in drumming? 
+
+Here we answer the question: "Is the drumming random?" by comparing the distributions of observed ratios with the distribution of ratios as expected
+when inter-hit intervals (IHIs) are uniformly randomly distributed (which we simulated above). We use Kolmogorov-Smirnov tests for this purpose.
+
+#### All observations (both eastern and western chimpanzee drumming) vs. uniformly random
+
+```{r ks-test}
+ks.all <- ks.test(ratios$Ratio, ratios.simulated$Ratio, alternative = "two.sided")
+ks.all
+```
+
+**Across subspecies, for all chimpanzees the drumming is not random.**
+
+#### Western chimpanzee vs. uniformly random
+
+```{r ks-test-wac}
+ks.wac <- ks.test(ratios$Ratio[ratios$Subspecies == "Western"], ratios.simulated$Ratio, alternative = "two.sided")
+ks.wac
+```
+
+**For western chimpanzees the drumming is not random.**
+
+#### Eastern chimpanzees vs. uniformly random
+
+```{r ks-test-eac}
+ks.eac <- ks.test(ratios$Ratio[ratios$Subspecies == "Eastern"], ratios.simulated$Ratio, alternative = "two.sided")
+ks.eac
+```
+
+**For eastern chimpanzees the drumming is not random.**
+
+### Do eastern and western chimpanzees show different distributions of ratios?
+
+```{r ks-test-eac-vs-wac}
+ks.eac.vs.wac <- ks.test(ratios$Ratio[ratios$Subspecies == "Eastern"], ratios$Ratio[ratios$Subspecies == "Western"], alternative = "two.sided")
+ks.eac.vs.wac
+```
+
+**Eastern and western chimpanzees show different distributions of ratios.** 
+
+### Do chimpanzees show isochrony in drumming?
+
+Here we compare the proportion of on-isochronous ratios that were observed to the number of on-isochronous ratios that can be expected by chance (i.e., when assuming uniformly random IHIs).
+
+We convert the number of on-isochronous observations to probabilities using: $\frac{\textrm{number of isochronous observations}}{\textrm{total number of observations}}$. We do this for each individual chimpanzee separately. The individuals' probabilities are then compared to chance probability using Wilcoxon signed-rank tests. Chance probability was calculated using the formula provided by @jadoulHiddenAssumptionsInteger2025:
+
+$$\frac{1}{2} - \frac{(4b - 5a)^2}{40 (b - a)^2}$$
+
+This yielded a value of 0.2042091.
+
+```{r isoc-vs-random-preparation}
+# Calculate the surface area of the isochronous bin using the formula from Jadoul et al. (2025)
+a <- min(ibis$IBI_ms)
+b <- max(ibis$IBI_ms)
+surface_area_isochronous <- ((1 / 2) - (((4 * b - 5 * a)^2) / (40 * (b - a)^2)))
+
+# Multiply by two (there's one bin on each side of 0.5 when using this formula)
+surface_area_isochronous <- surface_area_isochronous * 2 # 0.2042091
+
+# Subtract surface area of isochronous bin from empirical probabilities
+ratios.isoc.counts$Isoc_prob <- ratios.isoc.counts$On_isochronous / ratios.isoc.counts$Total_obs
+ratios.isoc.counts$Isoc_prob_normalized <- ratios.isoc.counts$Isoc_prob - surface_area_isochronous
+```
+
+```{r isoc-vs-random-plot}
+set.seed(2)
+ggplot(ratios.isoc.counts, aes(y = Isoc_prob * 100, x = Subspecies, fill = Subspecies)) +
+  geom_boxplot(colour = "black", show.legend = FALSE) +
+  geom_jitter(width = 0.2, height = 0, show.legend = FALSE) +
+  theme_drumming() +
+  labs(
+    y = "", x = "",
+  title = "") +
+  geom_hline(yintercept = surface_area_isochronous * 100, linetype = "dashed", linewidth = 0.8) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1))
+
+ggsave(here("plots", "isochronous_ratios_vs_random.pdf"), width = 7, height = 5)
+ggsave(here("plots", "isochronous_ratios_vs_random.png"), width = 7, height = 5)
+ggsave(here("plots", "isochronous_ratios_vs_random.svg"), width = 7, height = 5)
+
+```
+
+#### All observations (both eastern and western chimpanzee drumming)
+
+```{r isoc-vs-random-wilcoxon-all}
+isoc.vs.random.wsrt.all <- wilcox.test(ratios.isoc.counts$Isoc_prob_normalized, alternative = "two.sided")
+isoc.vs.random.wsrt.all
+print(paste("Median for all chimps:", median(ratios.isoc.counts$Isoc_prob_normalized)))
+```
+
+**Across subspecies, there are not more on-isochronous ratios than expected by chance.**
+
+#### Western chimpanzees
+
+```{r isoc-vs-random-wilcoxon-wac}
+isoc.vs.random.wsrt.wac <- wilcox.test(ratios.isoc.counts$Isoc_prob_normalized[ratios.isoc.counts$Subspecies == "Western"],
+  alternative = "two.sided"
+) # Significant
+isoc.vs.random.wsrt.wac
+print(paste("Median for Western:", median(ratios.isoc.counts$Isoc_prob_normalized[ratios.isoc.counts$Subspecies == "Western"])))
+```
+
+**In Western chimpanzees, there are significantly _more_ on-isochronous ratios than expected by chance.**
+
+#### Eastern chimpanzees
+
+```{r isoc-vs-random-wilcoxon-eac}
+isoc.vs.random.wsrt.eac <- wilcox.test(ratios.isoc.counts$Isoc_prob_normalized[ratios.isoc.counts$Subspecies == "Eastern"],
+  alternative = "two.sided"
+) # Significant
+isoc.vs.random.wsrt.eac
+print(paste("Median for Eastern:", median(ratios.isoc.counts$Isoc_prob_normalized[ratios.isoc.counts$Subspecies == "Eastern"])))
+```
+
+**In Eastern chimpanzees, there are significantly _fewer_ on-isochronous ratios than expected by chance.**
+
+### Is there more isochrony in eastern vs. western chimpanzees?
+
+Here we compare the empirical probabilities (i.e. $\frac{\textrm{number of isochronous observations}}{\textrm{total number of observations}}$) of on-isochronous
+ratios between eastern and western chimpanzees using a Wilcoxon rank-sum test.
+
+```{r isoc-counts-wilcoxon-eac-vs-wac}
+wilcox.test(
+  ratios.isoc.counts$Isoc_prob[ratios.isoc.counts$Subspecies == "Western"],
+  ratios.isoc.counts$Isoc_prob[ratios.isoc.counts$Subspecies == "Eastern"]
+)
+print(paste("Median for East:", median(ratios.isoc.counts$Isoc_prob[ratios.isoc.counts$Subspecies == "Eastern"])))
+print(paste("Median for West:", median(ratios.isoc.counts$Isoc_prob[ratios.isoc.counts$Subspecies == "Western"])))
+```
+
+**There are more on-isochronous ratios in western than in eastern chimpanzees.**
+
+### Do eastern chimpanzees alternate shorter-longer inter-hit intervals more than western chimpanzees? 
+
+We first extract the lag-one autocorrelations values by subspecies and drumming bout
+
+```{r get-autocorrelations}
+acf.cv <- ddply(ibis, .(Subspecies, Population, Community, Individual, Drumming_bout, N_hits), summarize,
+    lag_one = acf(IBI, lag.max = 1, plot = FALSE)$acf[2],
+    cv = sd(IBI) / mean(IBI)
+)
+
+acf.cv.bysubspecies <- ddply(acf.cv, .(Subspecies), summarize,
+    mean_lag_one = mean(lag_one, na.rm = TRUE),
+    sd_lag_one = sd(lag_one, na.rm = TRUE),
+    mean_cv = mean(cv, na.rm = TRUE),
+    sd_cv = sd(cv, na.rm = TRUE)
+)
+
+kable(acf.cv.bysubspecies, format = "html", escape = FALSE) %>%
+    kable_styling("striped", full_width = FALSE)
+```
+
+We then plot the lag-one autocorrelations 
+
+```{r plot-autocorrelations}
+ggplot(acf.cv, aes(y = Subspecies, x = lag_one, colour = Subspecies)) +
+    stat_summary(geom = "pointrange", show.legend = FALSE) +
+    theme_drumming() +
+    labs(y = "", x = "") +
+    coord_cartesian(xlim = c(-0.5, 0)) +
+    scale_x_continuous(breaks = c(-0.5, -0.25, 0)) +
+    theme(
+        panel.background = element_rect(fill = "transparent", color = NA), # Make panel background transparent
+        plot.background = element_rect(fill = "transparent", color = NA), # Make plot background transparent
+        panel.grid.major = element_blank(), # Remove major grid lines
+        panel.grid.minor = element_blank(), # Remove minor grid lines
+        panel.grid.major.x = element_line(color = "gray80", size = 0.5), # Add vertical major grid lines
+        panel.grid.major.y = element_blank(), # Remove major horizontal grid lines
+        legend.background = element_rect(fill = "transparent", color = NA), # Make legend background transparent
+        legend.box.background = element_rect(fill = "transparent", color = NA) # Make legend box background transparent
+    )
+```
+
+Then we compare the lag-one autocorrelations by subspecies using a t-test
+
+```{r do-t-test}
+# Check equality of variances
+acf.east <- acf.cv$lag_one[acf.cv$Subspecies == "Eastern"]
+acf.west <- acf.cv$lag_one[acf.cv$Subspecies == "Western"]
+var.test(acf.east, acf.west)
+
+# Run t-test
+acf.t.test <- t.test(acf.east, acf.west)
+
+# ACF by subspecies
+acf.by.subspecies <- as.data.frame(list(
+    test_statistic = acf.t.test$statistic,
+    p_value = acf.t.test$p.value,
+    cohens_d = mean(acf.east, na.rm = TRUE) - mean(acf.west, na.rm = TRUE) / sqrt((var(acf.east, na.rm = TRUE) + var(acf.west, na.rm = TRUE)) / 2),
+    df = acf.t.test$parameter,
+    method = acf.t.test$method
+))
+
+kable(acf.by.subspecies, format = "html", escape = FALSE) %>%
+    kable_styling("striped", full_width = FALSE)
+```
+
+**Eastern chimpanzees alternate shorter and longer inter-hit intervals in drumming more often than western chimpanzees.**
+
+
+# Main text: Analysis for subspecies variation in drumming tempo
+
+## Do western chimpanzees drum with a faster tempo than eastern chimpanzees?
+
+We first extract the drumming tempo per drumming bout and make a drumming tempo plot
+
+```{r boxplot}
+tempi <- ddply(ibis, .(Subspecies, Population, Community, Individual, Drumming_bout), summarize,
+  tempo = mean(IBI_ms)
+)
+
+ggplot(tempi, aes(x = Subspecies, y = tempo, fill = Subspecies)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_point(show.legend = FALSE, alpha = 0.7, position = position_jitter(width=0.1)) +
+  labs(y = "Tempo [ms]", title = "Subspecies drumming tempo") +
+  theme_drumming() +
+  theme(
+    plot.title = element_text(size = 40),
+    axis.title.x = element_text(size = 34),
+    axis.title.y = element_text(size = 34),
+    axis.text.x = element_text(size = 30),
+    axis.text.y = element_text(size = 30),
+    legend.title = element_text(size = 34, hjust=1),
+    legend.text = element_text(size = 34, hjust=1),
+    legend.position = "none",  
+    legend.key.size = unit(1, "cm"), 
+    legend.spacing.y = unit(0.5, "cm")) 
+```
+
+We then compare drumming tempo by subspecies using a glmm
+
+```{r mixed-model}
+model <- lmer(tempo ~ Subspecies + (1 | Individual), data = tempi)
+summary(model)
+effectsize(model)
+```
+
+```{r model-comparison}
+tempo.null.model <- lmer(tempo ~ (1 | Individual), data = tempi, REML = FALSE)
+tempo.comparison <- as.data.frame(anova(tempo.null.model, model, test = "Chisq"))
+tempo.comparison.chisquare <- round(tempo.comparison, 3)
+tempo.comparison.chisquare
+```
+
+**Western chimpanzees drum with a faster tempo than eastern chimpanzees.**
+
+
+# Supplement: Analyses for non-random timing, isochrony, and shorter-longer adjacent inter-hit intervals in >= 5 hit drumming bouts.
+
+## Preparations
+
+We subset the data to only include drumming bouts with 5 or more hits.
+
+```{r copy-df-and-filter-5hits}
+ratios.5plushits <- ratios
+ratios.5plushits <- ratios.5plushits %>%
+  group_by(Drumming_bout) %>%
+  filter(n() >= 3) %>% # remove drums < 3 ratios.5plushits (4 IBIs/5 beats)
+  group_by(Com_indiv_code) %>% # remove individuals with <3 drums
+  filter(n_distinct(Drumming_bout) >= 3) %>%
+  group_by(Community) %>% # remove communities with <1 individual
+  filter(n_distinct(Individual) > 1) %>%
+  ungroup()
+```
+
+Below, we count the number of empirical observations in each bin for drumming bouts with 5 hits or more.
+
+```{r count-and-normalize-drumming-5hits}
+# Code off- and on-isochronous
+ratios.5plushits$On_off_isoc <- NA
+ratios.5plushits$On_off_isoc <- factor(ratios.5plushits$On_off_isoc, levels = c("Off", "On", "Other"))
+ratios.5plushits$On_off_isoc <- "Other"
+ratios.5plushits$On_off_isoc[ratios.5plushits$Bin %in% c(5, 7)] <- "Off"
+ratios.5plushits$On_off_isoc[ratios.5plushits$Bin == 6] <- "On"
+
+# Count
+ratios.5plushits.isoc.counts <- dplyr::summarize(dplyr::group_by(ratios.5plushits, Subspecies, Population, Community, Com_indiv_code),
+  On_isochronous = sum(On_off_isoc == "On"), Off_isochronous = sum(On_off_isoc == "Off"), Other = sum(On_off_isoc == "Other"), Total_obs = n()
+)
+```
+
+### Plot of ratios distributions by subspecies for 5 or more hit drumming bouts
+
+```{r plot-ratios-distribution-5hits}
+labels <- as.data.frame(list(
+  x = c(0.25, 0.335, 0.5, 0.665, 0.75),
+  y = c(0.1, 0.1, 0.1, 0.1, 0.1),
+  label = c("1:3", "1:2", "1:1", "2:1", "3:1"),
+  size = c(4, 6, 10, 6, 4)
+))
+
+ggplot(ratios.5plushits, aes(x = Ratio, fill = Subspecies)) +
+  geom_density(linewidth = 0, alpha = 0.7) +
+  geom_density(data = ratios.simulated, aes(x = Ratio), linewidth = 2, colour = "yellow", inherit.aes = FALSE, show.legend = FALSE) +
+  theme_drumming() +
+  geom_vline(xintercept = breaks, linetype = "dashed", linewidth = 0.5, colour = "grey") +
+  labs(
+    y = "Density", x = "r", fill = "Subspecies", title = "Subspecies rhythmic patterns for drumming bouts with at least 5 hits",
+  ) +
+  geom_label(data = labels, aes(x = x, y = y, label = label), size = 10, family = "Helvetica", inherit.aes = FALSE) +
+  theme(
+    plot.title = element_text(size = 40),
+    axis.title.x = element_text(size = 34),
+    axis.title.y = element_text(size = 34),
+    axis.text.x = element_text(size = 30),
+    axis.text.y = element_text(size = 30),
+    legend.title = element_text(size = 34, hjust = 1),
+    legend.text = element_text(size = 34, hjust = 1),
+    legend.position = "right",
+    legend.key.size = unit(1, "cm"),
+    legend.spacing.y = unit(0.5, "cm")
+  )
+
+ggsave(here("plots", "integer_ratios_vs_random_5hitsormore.pdf"), width = 20, height = 15)
+```
+
+## Statistics
+
+### Do chimpanzees show non-random timing in drumming bouts with >=5 hits? (drumming ratios vs. random distribution)
+
+Here we answer the question: "Is the drumming random?" by comparing the distributions of observed ratios with the distribution of ratios as expected
+when inter-hit intervals (IHIs) are uniformly randomly distributed. We use the Kolmogorov-Smirnov test for this purpose.
+
+#### All observations (both eastern and western chimpanzee drumming) vs. uniformly random
+
+```{r ks-test-5hits}
+ks.all <- ks.test(ratios.5plushits$Ratio, ratios.simulated$Ratio, alternative = "two.sided")
+ks.all
+```
+
+**Across subspecies, for all chimpanzees the drumming bouts with 5 or more hits are not random.**
+
+#### Eastern chimpanzees vs. uniformly random
+
+```{r ks-test-eac-5hits}
+ks.eac <- ks.test(ratios.5plushits$Ratio[ratios.5plushits$Subspecies == "Eastern"], ratios.simulated$Ratio, alternative = "two.sided")
+ks.eac
+```
+
+**For eastern chimpanzees, the drumming bouts with 5 or more hits are random.**
+
+#### Western chimpanzees vs. uniformly random
+
+```{r ks-test-wac-5hits}
+ks.wac <- ks.test(ratios.5plushits$Ratio[ratios.5plushits$Subspecies == "Western"], ratios.simulated$Ratio, alternative = "two.sided")
+ks.wac
+```
+
+**For western chimpanzees, the drumming bouts with 5 or more hits are not random.**
+
+### Do eastern and western chimpanzees show different distributions of ratios?
+
+```{r ks-test-eac-vs-wac-5hits}
+ks.eac.vs.wac <- ks.test(ratios.5plushits$Ratio[ratios.5plushits$Subspecies == "Eastern"],
+  ratios.5plushits$Ratio[ratios.5plushits$Subspecies == "Western"],
+  alternative = "two.sided"
+)
+ks.eac.vs.wac
+```
+
+**Eastern and western chimpanzees show different distributions of ratios in drumming bouts with 5 or more hits.** 
+
+### Are there more on-isochronous ratios than expected by chance?
+
+Here we compare the proportion of on-isochronous ratios that were observed to the number of on-isochronous ratios that can be expected by chance (i.e., when assuming uniformly random IHIs).
+
+We convert the number of on-isochronous observations to probabilities using: $\frac{\textrm{number of isochronous observations}}{\textrm{total number of observations}}$. We do this for each individual chimpanzee separately. The individuals' probabilities are then compared to chance probability using Wilcoxon signed-rank tests. Chance probability was calculated using the formula provided by @jadoulHiddenAssumptionsInteger2025:
+
+$$\frac{1}{2} - \frac{(4b - 5a)^2}{40 (b - a)^2}$$
+
+```{r isoc-vs-random-preparation-5hits}
+# Calculate the surface area of the isochronous bin using the formula from Jadoul et al. (2025)
+a <- min(ibis$IBI_ms)
+b <- max(ibis$IBI_ms)
+surface_area_isochronous <- ((1 / 2) - (((4 * b - 5 * a)^2) / (40 * (b - a)^2)))
+
+# Multiply by two (there's one bin on each side of 0.5 when using this formula)
+surface_area_isochronous <- surface_area_isochronous * 2 # 0.2042091
+
+# Subtract surface area of isochronous bin from empirical probabilities
+ratios.5plushits.isoc.counts$Isoc_prob <- ratios.5plushits.isoc.counts$On_isochronous / ratios.5plushits.isoc.counts$Total_obs
+ratios.5plushits.isoc.counts$Isoc_prob_normalized <- ratios.5plushits.isoc.counts$Isoc_prob - surface_area_isochronous
+```
+
+```{r isoc-vs-random-plot-5hits}
+ggplot(ratios.5plushits.isoc.counts, aes(y = Isoc_prob * 100, x = Subspecies, fill = Subspecies)) +
+  geom_boxplot(colour = "black", show.legend = FALSE) +
+  geom_jitter(width = 0.2, height = 0, show.legend = FALSE) +
+  theme_drumming() +
+  labs(
+    y = "Percentage of isochronous drumming ratios per individual", x = "Subspecies",
+    title = "Percentage of isochronous ratios compared to chance level",
+    subtitle = "Chance level indicated by dotted line is based on uniformly randomly distributed IOIs.\nOnly drumming bouts with 5 or more hits are included.",
+  ) +
+  geom_hline(yintercept = surface_area_isochronous * 100, linetype = "dashed", linewidth = 1.2) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1))
+```
+
+#### All observations (both eastern and western chimpanzee drumming)
+
+```{r isoc-vs-random-wilcoxon-all-5hits}
+isoc.vs.random.wsrt.all <- wilcox.test(ratios.5plushits.isoc.counts$Isoc_prob_normalized, alternative = "two.sided")
+isoc.vs.random.wsrt.all
+print(paste("Median for all chimps:", median(ratios.5plushits.isoc.counts$Isoc_prob_normalized)))
+```
+
+**Across subspecies, for all chimpanzees there are not more on-isochronous ratios than expected by chance in drumming bouts with 5 or more hits.**
+
+#### Eastern chimpanzees
+
+```{r isoc-vs-random-wilcoxon-eac-5hits}
+isoc.vs.random.wsrt.eac <- wilcox.test(ratios.5plushits.isoc.counts$Isoc_prob_normalized[ratios.5plushits.isoc.counts$Subspecies == "Eastern"], alternative = "two.sided") # Significant
+isoc.vs.random.wsrt.eac
+print(paste("Median for Eastern:", median(ratios.5plushits.isoc.counts$Isoc_prob_normalized[ratios.5plushits.isoc.counts$Subspecies == "Eastern"])))
+```
+
+**In eastern chimpanzees, there are not  more or fewer on-isochronous ratios than expected by chance in drumming bouts with 5 or more hits.**
+
+#### Western chimpanzees
+
+```{r isoc-vs-random-wilcoxon-wac-5hits}
+isoc.vs.random.wsrt.wac <- wilcox.test(ratios.5plushits.isoc.counts$Isoc_prob_normalized[ratios.5plushits.isoc.counts$Subspecies == "Western"], alternative = "two.sided") # Significant
+isoc.vs.random.wsrt.wac
+print(paste("Median for Western:", median(ratios.5plushits.isoc.counts$Isoc_prob_normalized[ratios.5plushits.isoc.counts$Subspecies == "Western"])))
+```
+
+**In western chimpanzees, there are significantly _more_ on-isochronous ratios than expected by chance in drumming bouts with 5 or more hits.**
+
+### Is there more isochrony in eastern vs. western chimpanzees?
+
+Here we compare the empirical probabilities (i.e. $\frac{\textrm{number of isochronous observations}}{\textrm{total number of observations}}$) of on-isochronous
+ratios between eastern and western chimpanzees using a Wilcoxon rank-sum test.
+
+```{r isoc-counts-wilcoxon-eac-vs-wac-5hits}
+wilcox.test(
+  ratios.5plushits.isoc.counts$Isoc_prob[ratios.5plushits.isoc.counts$Subspecies == "Western"],
+  ratios.5plushits.isoc.counts$Isoc_prob[ratios.5plushits.isoc.counts$Subspecies == "Eastern"]
+)
+```
+
+**There are more on-isochronous ratios in western than in eastern chimpanzees in drumming bouts with 5 or more hits.**
+
+### Do eastern chimpanzees alternate shorter-longer inter-hit intervals more than western chimpanzees? 
+
+We subset the data to only include drumming bouts with 5 or more hits.
+
+```{r filter-5plushits}
+ibis.5plushits <- ibis
+ibis.5plushits <- ibis.5plushits %>%
+  group_by(Drumming_bout) %>%
+  filter(n() >= 4) %>% # remove drums < 4 IHIs
+  group_by(Com_indiv_code) %>% # remove individuals with <3 drums
+  filter(n_distinct(Drumming_bout) >= 3) %>%
+  group_by(Community) %>% # remove communities with <1 individual
+  filter(n_distinct(Individual) > 1) %>%
+  ungroup()
+
+```
+
+We first extract the lag-one autocorrelations values by subspecies and drumming bout
+
+```{r get-autocorrelations-5plushits}
+acf.cv.5plushits <- ddply(ibis.5plushits, .(Subspecies, Population, Community, Individual, Drumming_bout, N_hits), summarize,
+    lag_one = acf(IBI, lag.max = 1, plot = FALSE)$acf[2],
+    cv = sd(IBI) / mean(IBI)
+)
+
+acf.cv.bysubspecies.5plushits <- ddply(acf.cv.5plushits, .(Subspecies), summarize,
+    mean_lag_one = mean(lag_one, na.rm = TRUE),
+    sd_lag_one = sd(lag_one, na.rm = TRUE),
+    mean_cv = mean(cv, na.rm = TRUE),
+    sd_cv = sd(cv, na.rm = TRUE)
+)
+
+kable(acf.cv.bysubspecies.5plushits, format = "html", escape = FALSE) %>%
+    kable_styling("striped", full_width = FALSE)
+```
+
+We then plot the lag-one autocorrelations
+
+```{r plot-autocorrelations-5plushits}
+ggplot(acf.cv.5plushits, aes(y = Subspecies, x = lag_one, colour = Subspecies)) +
+    stat_summary(geom = "pointrange", show.legend = FALSE) +
+    theme_drumming() +
+    labs(y = "", x = "") +
+    coord_cartesian(xlim = c(-0.5, 0)) +
+    scale_x_continuous(breaks = c(-0.5, -0.25, 0)) +
+    theme(
+        panel.background = element_rect(fill = "transparent", color = NA), # Make panel background transparent
+        plot.background = element_rect(fill = "transparent", color = NA), # Make plot background transparent
+        panel.grid.major = element_blank(), # Remove major grid lines
+        panel.grid.minor = element_blank(), # Remove minor grid lines
+        panel.grid.major.x = element_line(color = "gray80", size = 0.5), # Add vertical major grid lines
+        panel.grid.major.y = element_blank(), # Remove major horizontal grid lines
+        legend.background = element_rect(fill = "transparent", color = NA), # Make legend background transparent
+        legend.box.background = element_rect(fill = "transparent", color = NA) # Make legend box background transparent
+    )
+```
+
+Then we compare the lag-one autocorrelations by subspecies using a t-test
+
+```{r do-t-test-5plushits}
+# Check equality of variances
+acf.5plushits.east <- acf.cv.5plushits$lag_one[acf.cv.5plushits$Subspecies == "Eastern"]
+acf.5plushits.west <- acf.cv.5plushits$lag_one[acf.cv.5plushits$Subspecies == "Western"]
+var.test(acf.5plushits.east, acf.5plushits.west)
+
+# Run t-test
+acf.5plushits.t.test <- t.test(acf.5plushits.east, acf.5plushits.west)
+
+# ACF by subspecies
+acf.5plushits.by.subspecies <- as.data.frame(list(
+    test_statistic = acf.5plushits.t.test$statistic,
+    p_value = acf.5plushits.t.test$p.value,
+    cohens_d = mean(acf.5plushits.east, na.rm = TRUE) - mean(acf.5plushits.west, na.rm = TRUE) / sqrt((var(acf.5plushits.east, na.rm = TRUE) +
+        var(acf.5plushits.west, na.rm = TRUE)) / 2),
+    df = acf.5plushits.t.test$parameter,
+    method = acf.5plushits.t.test$method
+))
+
+kable(acf.5plushits.by.subspecies, format = "html", escape = FALSE) %>%
+    kable_styling("striped", full_width = FALSE)
+```
+
+**The alternation of shorter and longer inter-hit intervals does not differ between eastern and western chimpanzees in drumming bouts with 5 or more hits.**
+
+
+# Supplement: Analyses for non-random timing and isochrony fully replicating previous studies
+
+## Introduction
+We here use the method as has been used until now in the literature, which, due to the normalization procedure
+(i.e. dividing by the bin _width_ rather than the bin _surface area_), assumes exponentially distributed IHIs/IOIs resulting from a Poisson point-process
+[@jadoulHiddenAssumptionsInteger2025].
+
+## Defining bins, bin widths, etc.
+
+```{r bins-poiss}
+ratios.normalization <- data.frame(bin = as.character(1:11))
+ratios.normalization$surface_area <- NA
+for (i in 1:11) {
+  bin <- bins[[as.character(i)]]
+  ratios.normalization$surface_area[ratios.normalization$bin == as.character(i)] <- length(ratios.simulated$Ratio[ratios.simulated$Ratio >= bin[1] &
+    ratios.simulated$Ratio < bin[2]]) / length(ratios.simulated$Ratio)
+}
+ratios.normalization$bin_left <- sapply(bins, function(x) x[1])
+ratios.normalization$bin_right <- sapply(bins, function(x) x[2])
+ratios.normalization$bin_size <- ratios.normalization$bin_right - ratios.normalization$bin_left
+ratios.normalization$bin_name <- c("1/4.5", "1/4", "1/3.5", "1/3", "1/2.5", "1/2", "1 - 1/2", "1 - 1/3", "1 - 1/3.5", "1 - 1/4", "1 - 1/4.5")
+ratios.normalization$bin_alternative_name <- c("", "1:3", "", "1:2", "", "1:1", "", "2:1", "", "3:1", "")
+```
+
+## Counting the number of empirical observations in each bin and normalize
+
+Below, we count the number of empirical observations in each bin and normalize them by dividing by the _bin width_.
+
+```{r count-and-normalize-drumming-poiss}
+# Code off- and on-isochronous
+ratios$On_off_isoc <- NA
+ratios$On_off_isoc <- factor(ratios$On_off_isoc, levels = c("Off", "On", "Other"))
+ratios$On_off_isoc <- "Other"
+ratios$On_off_isoc[ratios$Bin %in% c(5, 7)] <- "Off"
+ratios$On_off_isoc[ratios$Bin == 6] <- "On"
+
+# Count
+ratios.isoc.counts.poiss <- dplyr::summarize(dplyr::group_by(ratios, Subspecies, Population, Community, Com_indiv_code),
+  On_isochronous = sum(On_off_isoc == "On"), Off_isochronous = sum(On_off_isoc == "Off"), Other = sum(On_off_isoc == "Other"), Total_obs = n()
+)
+
+# Normalize
+ratios.isoc.counts.poiss$On_isochronous_norm <- ratios.isoc.counts.poiss$On_isochronous / (ratios.normalization$bin_size[6] * ratios.isoc.counts$Total_obs)
+ratios.isoc.counts.poiss$Off_isochronous_norm <- ratios.isoc.counts.poiss$Off_isochronous /
+  ((ratios.normalization$bin_size[5] + ratios.normalization$bin_size[7]) * ratios.isoc.counts$Total_obs)
+ratios.isoc.counts.poiss$Other_norm <- ratios.isoc.counts.poiss$Other / ((1 - sum(ratios.normalization$bin_size[5:7])) * ratios.isoc.counts$Total_obs)
+```
+
+The values in the normalized columns represent how much more above chance level the observed counts are. For example, a value of 1.0 means that the observed
+counts are as expected by chance, a value of 2.0 means that the observed counts are twice what was expected by chance, and so on.
+
+## Statistics
+
+### Do chimpanzees drum with non-random timing (drumming ratios vs. random distribution)?
+
+Here we answer the question: "Is the drumming random?" by comparing the distributions of observed ratios with the distribution of ratios as expected
+when IHIs/IOIs are exponentially distributed (i.e. resulting from a Poisson point-process). We use the Kolmogorov-Smirnov test for this purpose.
+
+#### All observations (both eastern and western chimpanzee drumming) vs. Poisson-assumed
+
+```{r ks-test-poiss-all}
+ks.all.poiss <- ks.test(ratios$Ratio, "punif")
+ks.all.poiss
+```
+
+**Across subspecies, for all chimpanzees the drumming is not random.**
+
+#### Eastern chimpanzees vs. Poisson-assumed
+
+```{r ks-test-eac-poiss}
+ks.eac.poiss <- ks.test(ratios$Ratio[ratios$Subspecies == "Eastern"], "punif")
+ks.eac.poiss
+```
+
+**For eastern chimpanzees, the drumming is not random.**
+
+#### Western chimpanzees vs. Poisson-assumed
+
+```{r ks-test-wac-poiss}
+ks.wac.poiss <- ks.test(ratios$Ratio[ratios$Subspecies == "Western"], "punif")
+ks.wac.poiss
+```
+
+**For western chimpanzees, the drumming is not random.**
+
+#### Do eastern and western chimpanzees show different distributions of ratios?
+
+This of course does not depend on the null hypothesis of how the IHIs are distributed but is included here for completeness (as also done in the previous section).
+
+```{r ks-test-eac-vs-wac-poiss}
+ks.eac.vs.wac.poiss <- ks.test(ratios$Ratio[ratios$Subspecies == "Eastern"], ratios$Ratio[ratios$Subspecies == "Western"])
+ks.eac.vs.wac.poiss
+```
+
+**Eastern and western chimpanzees show different distributions of ratios.** 
+
+### More on-isochronous vs. off-isochronous?
+
+Here we use the the classic method of comparing the number of on-isochronous vs. off-isochronous ratios,
+using the (until now common method for) normalization such that we divide by the _bin width_
+(which assumes exponentially distributed IHIs/IOIs resulting from a Poissant point-process).
+
+#### All observations (both eastern and western chimpanzee drumming)
+
+```{r isoc-counts-wilcoxon-all-poiss}
+# Paired Wilcoxon test
+wilcox.test(ratios.isoc.counts.poiss$On_isochronous_norm, ratios.isoc.counts.poiss$Off_isochronous_norm, paired = TRUE)
+```
+
+**Using the standard normalization procedure (i.e. dividing by bin width), we find that there are more on-isochronous ratios than off-isochronous ratios across subspecies.**
+
+#### Eastern chimpanzees
+
+```{r isoc-counts-wilcoxon-eac-poiss}
+wilcox.test(ratios.isoc.counts.poiss$On_isochronous_norm[ratios.isoc.counts.poiss$Subspecies == "Eastern"],
+  ratios.isoc.counts.poiss$Off_isochronous_norm[ratios.isoc.counts.poiss$Subspecies == "Eastern"],
+  paired = TRUE
+)
+```
+
+**Using the standard normalization procedure (i.e. dividing by bin width), we find that there are not more on-isochronous ratios than off-isochronous ratios in eastern chimpanzees.**
+
+#### Western chimpanzees
+
+```{r isoc-counts-wilcoxon-wac-poiss}
+wilcox.test(ratios.isoc.counts.poiss$On_isochronous_norm[ratios.isoc.counts.poiss$Subspecies == "Western"],
+  ratios.isoc.counts.poiss$Off_isochronous_norm[ratios.isoc.counts.poiss$Subspecies == "Western"],
+  paired = TRUE
+)
+```
+
+**Using the standard normalization procedure (i.e. dividing by bin width), we find that there are not more on-isochronous ratios than off-isochronous ratios in western chimpanzees.**
+
+#### Are there more on-isochronous ratios in western than in eastern chimpanzees?
+
+```{r isoc-counts-wilcoxon-eac-vs-wac-poiss}
+wilcox.test(
+  ratios.isoc.counts.poiss$On_isochronous_norm[ratios.isoc.counts.poiss$Subspecies == "Western"],
+  ratios.isoc.counts.poiss$On_isochronous_norm[ratios.isoc.counts.poiss$Subspecies == "Eastern"]
+)
+print(paste("Median for East:", median(ratios.isoc.counts.poiss$On_isochronous_norm[ratios.isoc.counts.poiss$Subspecies == "Eastern"])))
+print(paste("Median for West:", median(ratios.isoc.counts.poiss$On_isochronous_norm[ratios.isoc.counts.poiss$Subspecies == "Western"])))
+```
+
+**Using the standard normalization procedure (i.e. dividing by bin width), we find that there are more on-isochronous ratios in western chimpanzees than in eastern chimpanzees.**
+
+# References
+
+<div id="refs"></div>

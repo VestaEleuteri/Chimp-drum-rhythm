@@ -1,0 +1,616 @@
+---
+title: "Drumming regional variation: pdfas, repdfas, glmms statistics"
+author: Vesta Eleuteri
+date: "`r Sys.Date()`"
+output:
+  rmdformats::material:
+    self_contained: true
+    thumbnails: true
+    lightbox: true
+    gallery: false
+    highlight: tango
+    cards: true
+    code_folding: hide
+bibliography: references.bib
+csl: apa.csl
+---
+
+# Introduction
+
+This document accompanies the manuscript "Chimpanzee drumming shows rhythmicity and subspecies variation" @vestaeleuteriChimpanzeeDrummingShows2025.
+
+Here we tested for regional variation in drumming by comparing drumming structure across communities, across populations, and between subspecies.
+We first used permuted discriminant function analyses (pDFA) to test for the group differences and then used repeated discriminant function analyses (repDFA)
+and generalized linear mixed models (glmms) to identify the key variables discriminating the groups in significant pDFAs.
+
+Here we also tested for regional variation in drumming behaviour by comparing the timing of drumming onset during pant-hoot vocalizations across communities,
+across populations, and between subspecies. We used glmms to test for the group differences.
+
+# Preliminaries
+
+## Load packages, functions, data
+
+```{r load, warning=FALSE}
+# for easy loading of packages
+if (!require("pacman")) install.packages("pacman")
+
+# load packages
+#**to install cfp package run: "devtools::install_github("gobbios/cfp")"
+p_load("here", "devtools", "gobbios/cfp", "MASS", "lmerTest", "lme4", "MuMIn", "dplyr", "knitr", "kableExtra", "rmdformats")
+
+here <- here::here
+
+# for relative file paths (e.g. here('Input', 'file.csv'))
+here::i_am(file.path("reg_var_stats.Rmd"))
+
+# get custom R functions
+source(here("functions", "pdfa_functions.r"))
+source(here("functions", "repDFA_nested.r"))
+source(here("functions", "diagnostic_fcns.r"))
+source(here("functions", "glmm_stability.r"))
+source(here("functions", "boot_glmm.r"))
+
+# load custom ggplot theme
+source(here("theme_drumming.R"))
+
+# set knitr options
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, out.width = "100%", fig.height = 10, fig.width = 10, comment = NA)
+
+# load data
+xdata <- read.csv(here("dataframes", "drumming_wide.csv"))
+```
+
+# Descriptives
+
+## Descriptives drumming measures community
+
+```{r desc-com}
+descriptives_com <- xdata %>%
+  group_by(Subspecies, Population, Community) %>%
+  dplyr::summarise(
+    Number_Drums = n(),
+    Mean_N_hits = round(mean(N_hits, na.rm = TRUE), 3),
+    SD_N_hits = round(sd(N_hits, na.rm = TRUE), 3),
+    Mean_Bout_Duration = round(mean(Total_bout_duration, na.rm = TRUE), 3),
+    SD_Bout_Duration = round(sd(Total_bout_duration, na.rm = TRUE), 3),
+    Mean_Bout_cv = round(mean(Bout_cv, na.rm = TRUE), 3),
+    SD_Bout_cv = round(sd(Bout_cv, na.rm = TRUE), 3),
+    Mean_Bout_npvi = round(mean(Bout_npvi, na.rm = TRUE), 3),
+    SD_Bout_npvi = round(sd(Bout_npvi, na.rm = TRUE), 3),
+    Mean_Entropy = round(mean(Bout_entropy, na.rm = TRUE), 3),
+    SD_Entropy = round(sd(Bout_entropy, na.rm = TRUE), 3),
+    .groups = "drop"
+  )
+kable(descriptives_com, format = "html", caption = "Descriptives drumming measures community") %>%
+  kable_styling("striped", full_width = FALSE)
+```
+
+## Descriptives drumming measures population
+
+```{r desc-pop}
+descriptives_pop <- xdata %>%
+  group_by(Subspecies, Population) %>%
+  dplyr::summarise(
+    Number_Drums = n(),
+    Mean_N_hits = round(mean(N_hits, na.rm = TRUE), 3),
+    SD_N_hits = round(sd(N_hits, na.rm = TRUE), 3),
+    Mean_Bout_Duration = round(mean(Total_bout_duration, na.rm = TRUE), 3),
+    SD_Bout_Duration = round(sd(Total_bout_duration, na.rm = TRUE), 3),
+    Mean_Bout_cv = round(mean(Bout_cv, na.rm = TRUE), 3),
+    SD_Bout_cv = round(sd(Bout_cv, na.rm = TRUE), 3),
+    Mean_Bout_npvi = round(mean(Bout_npvi, na.rm = TRUE), 3),
+    SD_Bout_npvi = round(sd(Bout_npvi, na.rm = TRUE), 3),
+    Mean_Entropy = round(mean(Bout_entropy, na.rm = TRUE), 3),
+    SD_Entropy = round(sd(Bout_entropy, na.rm = TRUE), 3),
+    .groups = "drop" # Drop the grouping after summarising
+  )
+kable(descriptives_pop, format = "html", caption = "Descriptives drumming measures population") %>%
+  kable_styling("striped", full_width = FALSE)
+```
+
+## Descriptives drumming measures subspecies
+
+```{r desc-sub}
+descriptives_sub <- xdata %>%
+  group_by(Subspecies) %>%
+  dplyr::summarise(
+    Number_Drums = n(),
+    Mean_N_hits = round(mean(N_hits, na.rm = TRUE), 3),
+    SD_N_hits = round(sd(N_hits, na.rm = TRUE), 3),
+    Mean_Bout_Duration = round(mean(Total_bout_duration, na.rm = TRUE), 3),
+    SD_Bout_Duration = round(sd(Total_bout_duration, na.rm = TRUE), 3),
+    Mean_Bout_cv = round(mean(Bout_cv, na.rm = TRUE), 3),
+    SD_Bout_cv = round(sd(Bout_cv, na.rm = TRUE), 3),
+    Mean_Bout_npvi = round(mean(Bout_npvi, na.rm = TRUE), 3),
+    SD_Bout_npvi = round(sd(Bout_npvi, na.rm = TRUE), 3),
+    Mean_Entropy = round(mean(Bout_entropy, na.rm = TRUE), 3),
+    SD_Entropy = round(sd(Bout_entropy, na.rm = TRUE), 3),
+    .groups = "drop" # Drop the grouping after summarising
+  )
+kable(descriptives_sub, format = "html", caption = "Descriptives drumming measures subspecies") %>%
+  kable_styling("striped", full_width = FALSE)
+```
+
+## Descriptives drumming measures all
+
+```{r desc-all}
+descriptives_all <- xdata %>%
+  dplyr::summarise(
+    Number_Drums = n(),
+    Mean_N_hits = round(mean(N_hits, na.rm = TRUE), 3),
+    SD_N_hits = round(sd(N_hits, na.rm = TRUE), 3),
+    Mean_Bout_Duration = round(mean(Total_bout_duration, na.rm = TRUE), 3),
+    SD_Bout_Duration = round(sd(Total_bout_duration, na.rm = TRUE), 3),
+    Mean_Bout_cv = round(mean(Bout_cv, na.rm = TRUE), 3),
+    SD_Bout_cv = round(sd(Bout_cv, na.rm = TRUE), 3),
+    Mean_Bout_npvi = round(mean(Bout_npvi, na.rm = TRUE), 3),
+    SD_Bout_npvi = round(sd(Bout_npvi, na.rm = TRUE), 3),
+    Mean_Entropy = round(mean(Bout_entropy, na.rm = TRUE), 3),
+    SD_Entropy = round(sd(Bout_entropy, na.rm = TRUE), 3),
+    .groups = "drop" # Drop the grouping after summarising
+  )
+kable(descriptives_all, format = "html", caption = "Descriptives drumming measures all") %>%
+  kable_styling("striped", full_width = FALSE)
+```
+
+# Analyses for regional variation in drumming structure
+
+## Sort data
+
+```{r drum-sort-data, results="hide", fig.show="hide", echo=FALSE}
+# Add constants to variables to log-transform all non-normal variables with 0 bounds
+c <- 0.0001
+xdata$Total_bout_duration_c <- xdata$Total_bout_duration + c
+xdata$N_hits_c <- xdata$N_hits + c
+xdata$Bout_cv_c <- xdata$Bout_cv + c
+xdata$Bout_npvi_c <- xdata$Bout_npvi + c
+xdata$Bout_entropy_c <- xdata$Bout_entropy + c
+
+# Log-transform skewed distributions
+hist(xdata$N_hits_c) # skewed
+hist(log(xdata$N_hits_c)) # ok
+xdata$log.N_hits_c <- log(xdata$N_hits_c) # logtransform
+
+hist(xdata$Total_bout_duration_c) # skewed
+hist(log(xdata$Total_bout_duration_c)) # ok
+xdata$log.Total_bout_duration_c <- log(xdata$Total_bout_duration_c) # log-transform
+
+hist(xdata$Bout_cv_c) # slightly skewed
+hist(log(xdata$Bout_cv_c)) # skewed on other side so do not log-transform
+
+hist(xdata$Bout_npvi_c) # slightly skewed
+hist(log(xdata$Bout_npvi_c)) # skewed on other side so do not log-transform
+
+hist(xdata$Bout_entropy_c) # slightly skewed
+hist(log(xdata$Bout_entropy_c)) # skewed on other side so do not log-transform
+```
+
+## Community pDFA
+
+We first tested for regional variation using a pDFA to compare drumming structure across communities.
+
+```{r pdfa-community}
+set.seed(131)
+pdfa.res.communities <- pDFA.nested(
+  test.fac = "Pop_com_code", contr.fac = "Com_indiv_code",
+  variables = c(
+    "log.Total_bout_duration_c", "log.N_hits_c",
+    "Bout_cv_c", "Bout_npvi_c", "Bout_entropy_c"
+  ),
+  restrict.by = NULL,
+  n.contr.fac.levels.to.sel = NULL,
+  n.to.sel.per.contr.fac.level = NULL, n.sel = 100, n.perm = 1000,
+  pdfa.data = xdata
+)
+pdfa.res.communities$result
+```
+**The pDFA is significant showing that drumming structure varies across communities. We thus used a repDFA to identify the key variables discriminating the communities.**
+
+### Communtiy repDFA
+
+```{r repdfa-community}
+set.seed(5)
+ImpVars_all_comms_allvabs <- repDFA_nested(xdata,
+  testfactor = "Pop_com_code",
+  balancefactor = c("Pop_com_code", "Com_indiv_code"),
+  varnames = c(
+    "log.Total_bout_duration_c", "log.N_hits_c",
+    "Bout_cv_c", "Bout_npvi_c", "Bout_entropy_c"
+  ),
+  npercomb = 3, nrand = 1000
+)
+
+All_comms_allvabs_repDFA_res_df1 <- table(ImpVars_all_comms_allvabs$df1_best) 
+All_comms_allvabs_repDFA_res_df1
+All_comms_allvabs_repDFA_res_df2 <- table(ImpVars_all_comms_allvabs$df2_best) 
+All_comms_allvabs_repDFA_res_df2
+```
+**The repDFA identified as key variables on discriminant 1: nPVI and Number of hits, on discriminant 2: total bout duration and entropy. We thus used glmms to test if these variables significantly vary across the communities.**
+
+### Community glmm nPVI
+
+```{r glmm-community-nPVI}
+## Run model
+Model_npvi <- lmer(Bout_npvi_c ~ Community + (1 | Com_indiv_code), data = xdata, REML = F)
+
+## Full-null model comparison
+null_Model_npvi <- lmer(Bout_npvi_c ~ (1 | Com_indiv_code), data = xdata, REML = F)
+Chisq_Model_npvi <- as.data.frame(anova(null_Model_npvi, Model_npvi, test = "Chisq")) 
+Chisq_Model_npvi <- round(Chisq_Model_npvi, 3)
+Chisq_Model_npvi
+```
+**nPVI significantly varies across communities.**
+
+### Community glmm number of hits
+
+```{r glmm-community-N hits}
+## Run model
+Model_numhits <- lmer(log.N_hits_c ~ Community + (1 | Com_indiv_code), data = xdata, REML = F)
+
+## Full-null model comparison
+null_Model_numhits <- lmer(log.N_hits_c ~ (1 | Com_indiv_code), data = xdata, REML = F)
+Chisq_Model_numhits <- as.data.frame(anova(null_Model_numhits, Model_numhits, test = "Chisq")) 
+Chisq_Model_numhits <- round(Chisq_Model_numhits, 3)
+Chisq_Model_numhits
+```
+**Number of hits significantly varies across communities.**
+
+### Community glmm bout duration
+
+```{r glmm-community-bout-duration}
+## Run model
+Model_drumduration <- lmer(log.Total_bout_duration_c ~ Community + (1 | Com_indiv_code), data = xdata, REML = F)
+
+## Full-null model comparison
+null_Model_drumduration <- lmer(log.Total_bout_duration_c ~ (1 | Com_indiv_code), data = xdata, REML = F)
+Chisq_Model_drumduration <- as.data.frame(anova(null_Model_drumduration, Model_drumduration, test = "Chisq"))
+Chisq_Model_drumduration
+```
+**Bout duration does not significantly vary across communities.**
+
+### Community glmm entropy
+
+```{r glmm-community-entropy}
+## Run model
+Model_entropy <- lmer(Bout_entropy_c ~ Community + (1 | Com_indiv_code), data = xdata, REML = F)
+
+## Full-null model comparison
+null_Model_entropy <- lmer(Bout_entropy_c ~ (1 | Com_indiv_code), data = xdata, REML = F)
+Chisq_Model_entropy <- as.data.frame(anova(null_Model_entropy, Model_entropy, test = "Chisq"))
+Chisq_Model_entropy <- round(Chisq_Model_entropy, 3)
+Chisq_Model_entropy
+```
+**Entropy does not significantly vary across communities.**
+
+## Confirmatory Subspecies pDFA
+
+Because plots suggest that the variation lies across communities of different subspecies, we followed up the community comparison with a pDFA comparing the two subspecies (eastern and western).
+
+```{r pdfa-subspecies}
+set.seed(126)
+pdfa.res.subspecies <- pDFA.nested(
+  test.fac = "Subspecies", contr.fac = "Com_indiv_code",
+  variables = c(
+    "log.Total_bout_duration_c", "log.N_hits_c",
+    "Bout_cv_c", "Bout_npvi_c", "Bout_entropy_c"
+  ), restrict.by = NULL,
+  n.contr.fac.levels.to.sel = NULL,
+  n.to.sel.per.contr.fac.level = NULL, n.sel = 100, n.perm = 1000,
+  pdfa.data = xdata
+)
+
+
+pdfa.res.subspecies$result
+```
+**The pDFA is significant showing that drumming structure varies between subspecies. We thus used a repDFA to identify the key variables discriminating the subspecies.**
+
+### Subspecies repDFA
+
+```{r repdfa-subspecies}
+set.seed(5)
+ImpVars_sub_allvabs <- repDFA_nested(xdata,
+  testfactor = "Subspecies",
+  balancefactor = c("Subspecies", "Com_indiv_code"),
+  varnames = c(
+    "log.Total_bout_duration_c", "log.N_hits_c",
+    "Bout_cv_c", "Bout_npvi_c", "Bout_entropy_c"
+  ),
+  npercomb = 3, nrand = 1000
+)
+
+Sub_allvabs_repDFA_res_df1 <- table(ImpVars_sub_allvabs$df1_best)
+Sub_allvabs_repDFA_res_df1
+```
+**The repDFA idenfitied as most contributing variables on discriminant 1: nPVI and number of hits. We thus used glmms to test if these variables significantly discriminate the subspecies.**
+
+### Subspecies glmm nPVI
+
+```{r glmm-subspecies-nPVI}
+## Run model
+Model_npvi_sub <- lmer(Bout_npvi_c ~ Subspecies + (1 | Com_indiv_code), data = xdata, REML = F)
+
+## Full-null model comparison
+null_Model_npvi_sub <- lmer(Bout_npvi_c ~ (1 | Com_indiv_code), data = xdata, REML = F)
+Chisq_Model_npvi_sub <- as.data.frame(anova(null_Model_npvi_sub, Model_npvi_sub, test = "Chisq")) # sig
+Chisq_Model_npvi_sub <- round(Chisq_Model_npvi_sub, 3)
+Chisq_Model_npvi_sub
+```
+**nPVI significantly varies between subspecies.**
+
+### Subspecies glmm number of hits
+
+```{r glmm-subspecies-N hits}
+## Run model
+Model_nhits_sub <- lmer(log.N_hits_c ~ Subspecies + (1 | Com_indiv_code), data = xdata, REML = F)
+
+
+## Full-null model comparison
+null_Model_nhits_sub <- lmer(log.N_hits_c ~ (1 | Com_indiv_code), data = xdata, REML = F)
+Chisq_Model_nhits_sub <- as.data.frame(anova(null_Model_nhits_sub, Model_nhits_sub, test = "Chisq")) # sig
+Chisq_Model_nhits_sub <- round(Chisq_Model_nhits_sub, 3)
+Chisq_Model_nhits_sub
+```
+**Number of hits also significantly varies between subspecies.**
+
+Taken together, our results above show that -across both communities and subspecies- western chimpanzees drum with lower nPVI (i.e., variability between adjacent pairs of inter-hit intervals) and more hits in drumming bouts that eastern chimpanzees.
+
+
+## Across subspecies Populations pDFA
+
+**Because the sampled populations live in different habitat types, we used another pDFA to test whether ecology might affect drumming by comparing drumming structure across populations.**
+
+```{r pdfa-populations-all}
+set.seed(128)
+pdfa.res.populations <- pDFA.nested(
+  test.fac = "Population", contr.fac = "Com_indiv_code",
+  variables = c(
+    "log.Total_bout_duration_c", "log.N_hits_c",
+    "Bout_cv_c", "Bout_npvi_c", "Bout_entropy_c"
+  ), restrict.by = NULL,
+  n.contr.fac.levels.to.sel = NULL,
+  n.to.sel.per.contr.fac.level = NULL, n.sel = 100, n.perm = 1000,
+  pdfa.data = xdata
+)
+
+
+pdfa.res.populations$result
+```
+**The pDFA is non-significant showing that drumming structure does not vary across all populations and thus suggesting that ecology may not impact drumming structure.**
+
+But because the populations belong to different subspecies, we further assessed whether ecology may affect drumming structure while controlling for subspecies variation. We used two additional pDFAs comparing populations within each subspecies.
+
+## Western populations pDFA
+
+```{r pdfa-populations-west}
+xdata_TNF <- subset(xdata, Population %in% c("Tai", "Nimba", "Fongoli"))
+xdata_TNF <- droplevels(xdata_TNF)
+
+set.seed(136)
+pdfa.res.TNFpopulations <- pDFA.nested(
+  test.fac = "Population", contr.fac = "Com_indiv_code",
+  variables = c(
+    "log.Total_bout_duration_c", "log.N_hits_c",
+    "Bout_cv_c", "Bout_npvi_c", "Bout_entropy_c"
+  ), restrict.by = NULL,
+  n.contr.fac.levels.to.sel = NULL,
+  n.to.sel.per.contr.fac.level = NULL, n.sel = 100, n.perm = 1000,
+  pdfa.data = xdata_TNF
+)
+
+
+pdfa.res.TNFpopulations$result
+```
+**The pDFA is non-significant showing that drumming structure does not vary across western populations.**
+
+### Eastern populations pDFA
+
+```{r pdfa-populations-east}
+xdata_BKG <- subset(xdata, Population %in% c("Budongo", "Kibale", "Gombe"))
+xdata_BKG <- droplevels(xdata_BKG)
+
+set.seed(137)
+pdfa.res.BKGpopulations <- pDFA.nested(
+  test.fac = "Population", contr.fac = "Com_indiv_code",
+  variables = c(
+    "log.Total_bout_duration_c", "log.N_hits_c",
+    "Bout_cv_c", "Bout_npvi_c", "Bout_entropy_c"
+  ), restrict.by = NULL,
+  n.contr.fac.levels.to.sel = NULL,
+  n.to.sel.per.contr.fac.level = NULL, n.sel = 100, n.perm = 1000,
+  pdfa.data = xdata_BKG
+)
+
+
+pdfa.res.BKGpopulations$result
+```
+**The pDFA is non-significant showing that drumming structure does not vary across eastern populations.**
+
+
+# Subspecies drumming measures stability over time
+
+Here we test whether the drumming measures remain stable over time within the subspecies
+
+```{r datetime-objects}
+# convert recording date to datetime object
+xdata$Recording_date <- as.Date(xdata$Date, format = "%d.%m.%y")
+```
+
+## Distribution of recording dates
+
+```{r recording-dates}
+ggplot(xdata, aes(x = Recording_date, fill = Subspecies, colour = Subspecies)) +
+    geom_histogram(alpha = 0.6, binwidth = 3, show.legend = FALSE) +
+    theme_drumming() +
+    labs(x = "Recording date", y = "Counts", title = "Number of bouts by recording date") +
+    facet_wrap(~Subspecies, ncol = 1) +
+    scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+## Statistics
+
+### Does nPVI remain stable across time?
+
+```{r stability-over-time-npvi-plot}
+# nPVI
+ggplot(xdata, aes(x = Recording_date, y = Bout_npvi, color = Subspecies)) +
+    geom_point(alpha = 0.4, show.legend = FALSE) +
+    geom_smooth(method = "lm", show.legend = FALSE) +
+    theme_drumming() +
+    labs(x = "Recording date", y = "nPVI", title = "Stability of nPVI over recording dates") +
+    facet_wrap(~Subspecies, ncol = 1) +
+    scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+ggsave(here("plots", "stability_npvi.svg"), width = 10, height = 10)
+ggsave(here("plots", "stability_npvi.png"), width = 10, height = 10)
+```
+
+```{r stability-over-time-npvi-model}
+mod <- lmer(Bout_npvi ~ Days_before_2024 * Subspecies + (1 | Com_indiv_code), data = xdata, REML = FALSE)
+red <- lmer(Bout_npvi ~ Days_before_2024 + Subspecies + (1 | Com_indiv_code), data = xdata, REML = FALSE)
+chisq.npvi <- as.data.frame(anova(red, mod, test = "chisq"))
+chisq.npvi
+```
+**nPVI remains stable across time within subspecies.**
+
+## Does coefficient of variation remain stable across time?
+
+```{r stability-over-time-cv}
+ggplot(xdata, aes(x = Recording_date, y = Bout_cv, color = Subspecies)) +
+    geom_point(alpha = 0.4, show.legend = FALSE) +
+    geom_smooth(method = "lm", show.legend = FALSE) +
+    theme_drumming() +
+    labs(x = "Recording date", y = "CV", title = "Stability of CV over recording dates") +
+    facet_wrap(~Subspecies, ncol = 1) +
+    scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggsave(here("plots", "stability_cv.svg"), width = 10, height = 10)
+ggsave(here("plots", "stability_cv.png"), width = 10, height = 10)
+```
+
+```{r stability-over-time-cv-model}
+mod <- lmer(Bout_cv ~ Days_before_2024 * Subspecies + (1 | Com_indiv_code), data = xdata, REML = FALSE)
+red <- lmer(Bout_cv ~ Days_before_2024 + Subspecies + (1 | Com_indiv_code), data = xdata, REML = FALSE)
+chisq.cv <- as.data.frame(anova(red, mod, test = "chisq"))
+chisq.cv
+```
+**Coefficient of variation remains stable across time within subspecies.**
+
+## Does entropy remain stable across time?
+
+```{r stability-over-time-entropy}
+ggplot(xdata, aes(x = Recording_date, y = Bout_entropy, color = Subspecies)) +
+    geom_point(alpha = 0.4, show.legend = FALSE) +
+    geom_smooth(method = "lm", show.legend = FALSE) +
+    theme_drumming() +
+    labs(x = "Recording date", y = "Entropy", title = "Stability of entropy over recording dates") +
+    facet_wrap(~Subspecies, ncol = 1) +
+    scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+ggsave(here("plots", "stability_entropy.svg"), width = 10, height = 10)
+ggsave(here("plots", "stability_entropy.png"), width = 10, height = 10)
+```
+
+```{r stability-over-time-entropy-model}
+mod <- lmer(Bout_entropy ~ Days_before_2024 * Subspecies + (1 | Com_indiv_code), data = xdata, REML = FALSE)
+red <- lmer(Bout_entropy ~ Days_before_2024 + Subspecies + (1 | Com_indiv_code), data = xdata, REML = FALSE)
+chisq.entropy <- as.data.frame(anova(red, mod, test = "chisq"))
+chisq.entropy
+```
+**Entropy remains stable across time within subspecies.**
+
+## Does number of hits remain stable across time?
+
+```{r stability-over-time-n-hits}
+ggplot(xdata, aes(x = Days_before_2024, y = N_hits, color = Subspecies)) +
+    geom_point(alpha = 0.4, show.legend = FALSE) +
+    geom_smooth(method = "lm", show.legend = FALSE) +
+    theme_drumming() +
+    labs(x = "Days before 2024", y = "Number of hits", title = "Stability of number of hits over recording dates") +
+    facet_wrap(~Subspecies, ncol = 1) +
+    scale_x_reverse()
+ggsave(here("plots", "stability_n_hits.svg"), width = 10, height = 10)
+ggsave(here("plots", "stability_n_hits.png"), width = 10, height = 10)
+```
+
+```{r stability-over-time-n-hits-model}
+mod <- lmer(N_hits ~ Days_before_2024 * Subspecies + (1 | Com_indiv_code), data = xdata, REML = FALSE)
+red <- lmer(N_hits ~ Days_before_2024 + Subspecies + (1 | Com_indiv_code), data = xdata, REML = FALSE)
+chisq.N_hits <- as.data.frame(anova(red, mod, test = "chisq"))
+chisq.N_hits
+```
+**Number of hits remains stable across time within subspecies.**
+
+
+# Analyses for regional variation in drumming onset during pant-hoot
+
+We last tested for regional variation in drumming behaviour using 3 glmms to compare the timing of drumming onset during pant-hoot vocalizations across communities, across populations, and between subspecies.
+
+## Sort data
+
+```{r drum-ph-sort-data, results="hide"}
+levels(xdata$With_Ph)[levels(xdata$With_Ph) %in% c("with")] <- "With"
+xdata_ph <- subset(xdata, Start_Ph %in% c("Build-Up", "Climax", "Let-Down", "roar", "Roar")) # keeping only drums starting in clear pant-hoot phases
+xdata_ph <- droplevels(xdata_ph)
+xdata_ph$Start_Ph <- factor(xdata_ph$Start_Ph) # conver to factor
+levels(xdata_ph$Start_Ph)[levels(xdata_ph$Start_Ph) %in% c("Build-Up", "roar", "Roar")] <- "Before Climax Start" # rename level
+levels(xdata_ph$Start_Ph)[levels(xdata_ph$Start_Ph) %in% c("Climax", "Let-Down")] <- "After Climax Start" # rename level
+
+## Check frequencies of response variable
+table(xdata_ph$Start_Ph, xdata_ph$Community) # South has 0 drums After Climax Start so remove level
+xdata_ph <- subset(xdata_ph, Community != c("South")) # removed, n=302
+xdata_ph <- droplevels(xdata_ph) # drop levels no observations
+table(xdata_ph$Start_Ph, xdata_ph$Community)
+
+## Dummy code response variable
+xdata_ph$Start_Ph <- as.numeric(xdata_ph$Start_Ph == "Before Climax Start") # Dummy coded Before Climax Start as 1
+```
+
+## Community glmm
+
+```{r drum-ph-com-glmm}
+## Run model
+Model_start_ph_com <- glmer(Start_Ph ~ Community + (1 | Com_indiv_code), data = xdata_ph, family = binomial)
+
+## Full-null model comparison
+null_Model_start_ph_com <- glmer(Start_Ph ~ (1 | Com_indiv_code), data = xdata_ph, family = binomial)
+Chisq_Model_start_ph_com <- as.data.frame(anova(null_Model_start_ph_com, Model_start_ph_com, test = "Chisq")) # sig
+Chisq_Model_start_ph_com <- round(Chisq_Model_start_ph_com, 3)
+Chisq_Model_start_ph_com
+```
+**The timing of drumming onset significantly varies across communities.**
+
+## Population glmm
+
+```{r drum-ph-pop-glmm}
+## Run model
+Model_start_ph_pop <- glmer(Start_Ph ~ Population + (1 | Com_indiv_code), data = xdata_ph, family = binomial)
+
+## Full-null model comparison
+null_Model_start_ph_pop <- glmer(Start_Ph ~ (1 | Com_indiv_code), data = xdata_ph, family = binomial)
+Chisq_Model_start_ph_pop <- as.data.frame(anova(null_Model_start_ph_pop, Model_start_ph_pop, test = "Chisq"))
+Chisq_Model_start_ph_pop <- round(Chisq_Model_start_ph_pop, 3)
+Chisq_Model_start_ph_pop
+```
+**The timing of drumming onset significantly varies across all populations.**
+
+## Confirmatory subspecies glmm
+
+```{r drum-ph-sub-glmm}
+## Run model
+Model_start_ph_sub <- glmer(Start_Ph ~ Subspecies + (1 | Com_indiv_code), data = xdata_ph, family = binomial)
+
+## Full-null model comparison
+null_Model_start_ph_sub <- glmer(Start_Ph ~ (1 | Com_indiv_code), data = xdata_ph, family = binomial)
+Chisq_Model_start_ph_sub <- as.data.frame(anova(null_Model_start_ph_sub, Model_start_ph_sub, test = "Chisq"))
+Chisq_Model_start_ph_sub <- round(Chisq_Model_start_ph_sub, 3)
+Chisq_Model_start_ph_sub
+```
+**The timing of drumming onset significantly varies between subspecies.**
+
+Taken together, we find that western chimpanzees start to drum earlier in the pant-hoot than eastern chimpanzees typically during the build-up phase.
+
+
+# References
+<div id="refs"></div>

@@ -1,0 +1,339 @@
+---
+title: "Drumming regional variation: plots"
+author: Vesta Eleuteri & Jelle van der Werff
+date: "`r Sys.Date()`"
+output:
+  rmdformats::material:
+    self_contained: true
+    thumbnails: true
+    lightbox: true
+    gallery: false
+    highlight: tango
+    cards: true
+    code_folding: hide
+bibliography: references.bib
+csl: apa.csl
+---
+
+# Introduction
+
+This document accompanies the manuscript "Chimpanzee drumming shows rhythmicity and subspecies variation" @vestaeleuteriChimpanzeeDrummingShows2025.
+
+Here we make plots to accompany our regional variation analyses.
+
+# Preliminaries
+
+```{r load, warning=FALSE, message=FALSE}
+# for easy loading of packages
+if (!require("pacman")) install.packages("pacman")
+
+p_load(
+  "here", "ggplot2", "ggdist", "plyr", "dplyr"
+)
+
+# for relative file paths (e.g. here('Input', 'file.csv'))
+here <- here::here
+here::i_am(file.path("plots.Rmd"))
+
+# Knitr output settings
+knitr::opts_chunk$set(
+  warning = FALSE,
+  message = FALSE,
+  out.width = "100%",
+  fig.width = 10,
+  fig.height = 10,
+  cache = TRUE
+)
+
+source(here("theme_drumming.R"))
+
+# load data
+xdata <- read.csv(here("dataframes", "drumming_wide.csv"))
+xdata.ratios <- read.csv(here("dataframes", "drumming_ratios.csv"))
+```
+
+# Plot for nPVI by community
+
+```{r sort-data, warning=FALSE}
+sub_order <- c("Western", "Eastern")
+pop_order <- c("Fongoli", "Nimba", "Taï", "Gombe", "Kibale", "Budongo")
+com_order <- c(
+  "Fongoli", "Tongbongbon", "Gahtoy", "East", "Middle", "North", "South",
+  "Kasekela", "Kanyawara", "Sonso", "Waibira"
+)
+
+xdata$Subspecies <- factor(xdata$Subspecies, levels = sub_order)
+xdata$Population <- factor(xdata$Population, levels = pop_order)
+xdata$Community <- factor(xdata$Community, levels = com_order)
+
+# sort ratios
+xdata.ratios$Subspecies <- factor(xdata.ratios$Subspecies, levels = sub_order)
+xdata.ratios$Population <- factor(xdata.ratios$Population, levels = pop_order)
+xdata.ratios$Community <- factor(xdata.ratios$Community, levels = com_order)
+
+# Create a new label combining Community and Population for plots
+xdata$CombinedLabel <- paste(xdata$Population, "\n", xdata$Community)
+
+
+desired_order <- c(
+  "Fongoli \n Fongoli", "Nimba \n Tongbongbon", "Nimba \n Gahtoy",
+  "Taï \n East", "Taï \n Middle", "Taï \n North", "Taï \n South",
+  "Gombe \n Kasekela", "Kibale \n Kanyawara", "Budongo \n Sonso", "Budongo \n Waibira"
+)
+
+
+# Convert CombinedLabel to a factor with the specified order
+xdata$CombinedLabel <- factor(xdata$CombinedLabel, levels = desired_order)
+```
+
+```{r nPVI-plot-com, fig.width=26}
+Com_npvi_plot <- ggplot(xdata, aes(x = factor(CombinedLabel), y = Bout_npvi, fill = factor(CombinedLabel))) +
+  # add half-violin from {ggdist} package
+  stat_halfeye(
+    # adjust bandwidth
+    adjust = 0.5,
+    # move to the right
+    justification = -0.2,
+    # remove the slub interval
+    .width = 0,
+    point_colour = NA
+  ) +
+  geom_boxplot(
+    width = 0.12,
+    # removing outliers
+    outlier.color = NA,
+    alpha = 0.5
+  ) +
+  geom_point(
+    position = position_jitter(width = .15),
+    size = .5,
+    alpha = 0.8
+  ) +
+  # Themes and Labels
+  theme_drumming() + # use drumming plot theme
+  labs(
+    title = "D - Community variability between adjacent pairs of inter-hit intervals",
+    x = "",
+    y = "nPVI",
+    fill = ""
+  ) +
+  guides(fill = "none") +
+  theme(
+    plot.title = element_text(size = 40),
+    axis.title.x = element_text(size = 34, margin = margin(t = 20)),
+    axis.title.y = element_text(size = 34),
+    axis.text.x = element_text(size = 30, margin = margin(t = 20)), # Add margin to x-axis text
+    axis.text.y = element_text(size = 30),
+    legend.title = element_text(size = 34),
+    legend.text = element_text(size = 34)
+  ) +
+  theme(plot.margin = margin(1, 0, 2, 1, "cm"))
+
+Com_npvi_plot
+ggsave(here("plots", "Com_nPVI.png"), width = 26, height = 8)
+ggsave(here("plots", "Com_nPVI.svg"), width = 26, height = 8)
+```
+
+# Plot for drumming onset in pant-hoot
+
+```{r sort-ph-data, warning=FALSE}
+xdata_ph <- subset(xdata, Start_Ph %in% c("Build-Up", "Climax", "Let-Down", "roar", "Roar"))
+xdata_ph <- droplevels(xdata_ph)
+xdata_ph$Start_Ph <- factor(xdata_ph$Start_Ph) # conver to factor
+levels(xdata_ph$Start_Ph)[levels(xdata_ph$Start_Ph) %in% c("Build-Up", "roar", "Roar")] <- "Before climax start"
+levels(xdata_ph$Start_Ph)[levels(xdata_ph$Start_Ph) %in% c("Climax", "Let-Down")] <- "After climax start"
+xdata_ph <- droplevels(xdata_ph)
+
+community_phdrumstart_table <- table(xdata_ph$CombinedLabel, xdata_ph$Start_Ph)
+
+community_phdrumstart_data <- as.data.frame(as.table(community_phdrumstart_table))
+colnames(community_phdrumstart_data) <- c("Community", "Drumming_Start", "Frequency")
+
+### Convert Frequency to Percentage
+community_phdrumstart_data$Percentage <- with(
+  community_phdrumstart_data,
+  ave(Frequency, Community, FUN = function(x) 100 * x / sum(x))
+)
+```
+
+
+```{r drum-ph-plot-com, fig.width=26}
+colors <- c("white", "black")
+Com_ph_start_plot <- ggplot(community_phdrumstart_data, aes(x = Community, y = Percentage, fill = Drumming_Start)) +
+  geom_bar(stat = "identity", colour = "black") + # Add border around bars
+  theme_drumming() +
+  scale_fill_manual(values = colors) +
+  labs(title = "E - Community drumming onset during pant-hoot", x = "", y = "Percentage", fill = "") +
+  theme(
+    plot.title = element_text(size = 40),
+    axis.title.x = element_text(size = 34, margin = margin(t = 20)),
+    axis.title.y = element_text(size = 34),
+    axis.text.x = element_text(size = 30),
+    axis.text.y = element_text(size = 30),
+    legend.title = element_text(size = 34),
+    legend.text = element_text(size = 34)
+  ) +
+  theme(plot.margin = margin(1, 0, 2, 1, "cm")) +
+  guides(fill = "none")
+
+Com_ph_start_plot
+ggsave(here("plots", "Com_PhStart.png"), width = 26, height = 8)
+ggsave(here("plots", "Com_PhStart.svg"), width = 26, height = 8)
+```
+
+# Plot for number of hits in drumming bout
+
+```{r N hits-plot-sub, fig.width=26}
+Sub_nhits_plot <- ggplot(xdata, aes(x = N_hits, fill = factor(Subspecies))) +
+  geom_histogram(
+    position = "identity",
+    width = 0.5,
+    alpha = 0.7,
+    bins = 28 # Number of bins
+  ) +
+  # Themes and Labels
+  theme_drumming() + # Use drumming plot theme
+  labs(
+    title = "A - Subspecies number of hits in drumming bout",
+    x = "Number of hits",
+    y = "Frequency",
+    fill = "Subspecies"
+  ) +
+  scale_x_continuous(
+    breaks = c(1, 2, seq(3, 28, by = 1)), # Add breaks starting from 1 to 28
+    limits = c(1, 28) # adjust limits on x
+  ) +
+  theme(
+    plot.title = element_text(size = 40),
+    axis.title.x = element_text(size = 34),
+    axis.title.y = element_text(size = 34),
+    axis.text.x = element_text(size = 30),
+    axis.text.y = element_text(size = 30),
+    legend.title = element_text(size = 34, hjust = 1),
+    legend.text = element_text(size = 34, hjust = 1),
+    legend.position = "right", # Position the legend
+    legend.key.size = unit(1, "cm"), # Adjust size of legend keys
+    legend.spacing.y = unit(0.5, "cm") # Adjust spacing between legend items
+  ) +
+  theme(plot.margin = margin(1, 0, 2, 1, "cm"))
+Sub_nhits_plot
+
+ggsave(here("plots", "Sub_Num_Hits.pdf"), width = 25, height = 10)
+ggsave(here("plots", "Sub_Num_Hits.png"), width = 25, height = 10)
+```
+
+# Subspecies drumming bout duration plot
+
+```{r Bout duration-plot-sub, fig.width=26}
+Sub_boutdur_plot <- ggplot(xdata, aes(x = Total_bout_duration, fill = factor(Subspecies))) +
+  geom_histogram(
+    position = "identity",
+    width = 0.5,
+    alpha = 0.7,
+    bins =  10
+  ) +
+  theme_drumming() + 
+  labs(
+    title = "B - Subspecies drumming bout duration",
+    x = "Bout duration [s]",
+    y = "Frequency",
+    fill = "Subspecies") +
+    scale_x_continuous(breaks = seq(0, 6, by = 1)
+  ) +
+  theme(
+    plot.title = element_text(size = 40),
+    axis.title.x = element_text(size = 34),
+    axis.title.y = element_text(size = 34),
+    axis.text.x = element_text(size = 30),
+    axis.text.y = element_text(size = 30),
+    legend.title = element_text(size = 34, hjust=1),
+    legend.text = element_text(size = 34, hjust=1),
+    legend.position = "none",  
+    legend.key.size = unit(1, "cm"), 
+    legend.spacing.y = unit(0.5, "cm") 
+  ) 
+Sub_boutdur_plot
+
+ggsave(here("plots", "Sub_Bout_duration.pdf"), width = 25, height = 10)
+ggsave(here("plots", "Sub_Bout_duration.png"), width = 25, height = 10)
+```
+
+# Subspecies drumming tempo plot
+
+```{r tempi-plot-sub, fig.width=26}
+tempi <- ddply(xdata, .(Subspecies, Population, Community, Individual, Drumming_bout), dplyr::summarize,
+               tempo = (Total_bout_duration / (N_hits - 1)) * 1000
+)
+
+Sub_tempi <- ggplot(tempi, aes(x = Subspecies, y = tempo, fill = Subspecies)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_point(show.legend = FALSE, alpha = 0.7, position = position_jitter(width=0.1)) +
+  labs(y = "Tempo [ms]", title = "C - Subspecies drumming tempo") +
+  theme_drumming() +
+  theme(
+    plot.title = element_text(size = 40),
+    axis.title.x = element_text(size = 34),
+    axis.title.y = element_text(size = 34),
+    axis.text.x = element_text(size = 30),
+    axis.text.y = element_text(size = 30),
+    legend.title = element_text(size = 34, hjust=1),
+    legend.text = element_text(size = 34, hjust=1),
+    legend.position = "none",  
+    legend.key.size = unit(1, "cm"), 
+    legend.spacing.y = unit(0.5, "cm")) 
+Sub_tempi
+ggsave(here("plots", "Sub_Bout_tempo.pdf"), width = 25, height = 10)
+ggsave(here("plots", "Sub_Bout_tempo.png"), width = 25, height = 10)
+```
+
+# Subspecies drumming number of hits, bout duration, tempo combined plot
+
+```{r Combined-plot-sub, fig.width=26}
+# Load necessary package
+library(gridExtra)
+
+Combined_plot=grid.arrange(Sub_nhits_plot, Sub_boutdur_plot, Sub_tempi, widths = c(3, 2, 1),
+                                       layout_matrix = rbind(c(1, 1), c(2, 3)))
+ggsave(
+  filename = here("plots", "Sub_Nhits_boutdur_tempi.pdf"),
+  plot = Combined_plot,  # Use the grob object
+  width = 30, 
+  height = 20
+)
+```
+
+# Subspecies number of hits vs bout duration
+
+```{r N hits-vs-Bout-dur-plot-sub, fig.width=26}
+Sub_Nhit_boutdur_plot <- ggplot(xdata, aes(x = Total_bout_duration, y = N_hits, color = Subspecies)) +
+  geom_point(size=5, alpha=0.7) +
+  theme_drumming() + 
+  labs(
+    title = "Subspecies drumming number of hits vs bout duration",
+    x = "Bout duration",
+    y = "Number of hits",
+    fill = "Subspecies") +
+  scale_x_continuous(breaks = seq(0, 6, by = 1)) + 
+  scale_y_continuous(breaks = seq(0, 30, by = 5)) +
+  theme(
+    plot.title = element_text(size = 40),
+    axis.title.x = element_text(size = 34),
+    axis.title.y = element_text(size = 34),
+    axis.text.x = element_text(size = 30),
+    axis.text.y = element_text(size = 30),
+    legend.title = element_text(size = 34, hjust=1),
+    legend.text = element_text(size = 34, hjust=1),
+    legend.position = "right",  
+    legend.key.size = unit(1, "cm"), 
+    legend.spacing.y = unit(0.5, "cm") 
+  ) + 
+  geom_smooth(method = "lm")
+Sub_Nhit_boutdur_plot
+
+ggsave(here("plots", "Sub_NhitsvsBout_duration.pdf"), width = 20, height = 15)
+ggsave(here("plots", "Sub_NhitsvsBout_duration.png"), width = 20, height = 15)
+```
+
+# References
+
+<div id="refs"></div>
